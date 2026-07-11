@@ -1,0 +1,124 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  font-family: "Inter", sans-serif;
+  /* Latar mengacu ke palet Mario (mix & match): near-black sebagai dasar
+     (peran hitam), glow biru dominan dari atas (aksen primer), plus sorotan
+     tipis merah & kuning di sudut bawah. Semua alpha rendah supaya panel &
+     teks tetap kontras. */
+  background:
+    radial-gradient(circle at 50% -10%, rgba(4, 156, 216, 0.20), transparent 55%),
+    radial-gradient(circle at 8% 108%, rgba(229, 37, 33, 0.08), transparent 45%),
+    radial-gradient(circle at 92% 105%, rgba(251, 208, 0, 0.07), transparent 45%),
+    #0b1016;
+  background-attachment: fixed;
+}
+
+.font-display {
+  font-family: "Barlow Condensed", sans-serif;
+  letter-spacing: 0.02em;
+}
+
+.scanline-panel {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    rgba(4, 156, 216, 0.05) 0px,
+    rgba(4, 156, 216, 0.05) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+}
+
+/* Opening screen: "GAME SHIELD" zoom-in transition per konsep doc */
+@keyframes shield-zoom-in {
+  0% {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.zoom-in-title {
+  animation: shield-zoom-in 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+/* ---- Sentuhan pixel-game (medium) ------------------------------------- */
+
+/* Crisp upscaling untuk aset pixel-art (background & sprite). */
+.pixelated {
+  image-rendering: pixelated;
+}
+
+/* Tombol gaya pixel: border tegas + hard offset shadow, dan "ketekan"
+   sedikit saat aktif (press feedback yang enak di HP). touch-action
+   manipulation menghilangkan delay 300ms + mencegah double-tap zoom. */
+.pixel-btn {
+  border: 2px solid rgba(0, 0, 0, 0.4);
+  box-shadow: 3px 3px 0 0 rgba(0, 0, 0, 0.45);
+  transition: transform 0.06s ease, box-shadow 0.06s ease, filter 0.15s ease,
+    background-color 0.15s ease;
+  touch-action: manipulation;
+}
+.pixel-btn:hover {
+  filter: brightness(1.05);
+}
+.pixel-btn:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 0 rgba(0, 0, 0, 0.45);
+}
+.pixel-btn:disabled {
+  box-shadow: 2px 2px 0 0 rgba(0, 0, 0, 0.25);
+  transform: none;
+  filter: none;
+}
+
+/* Kartu/panel dengan bayangan blok khas game pixel. */
+.pixel-card {
+  box-shadow: 4px 4px 0 0 rgba(0, 0, 0, 0.35);
+}
+
+/* ---- Tema pixel untuk dialog SweetAlert2 (lihat lib/dialog.js) --------- */
+.swal2-container.swal2-backdrop-show {
+  background: rgba(11, 16, 22, 0.82); /* void/80 */
+}
+.shield-swal-popup {
+  background: #141c24 !important; /* panel */
+  border: 2px solid #263340; /* line */
+  border-radius: 0.5rem;
+  color: #ede6d6; /* parchment */
+  padding: 1.75rem 1.5rem 1.5rem;
+}
+.shield-swal-title {
+  font-family: "Press Start 2P", monospace;
+  font-size: 1rem;
+  line-height: 1.5;
+  color: #ede6d6;
+  margin-bottom: 0.25rem;
+}
+.shield-swal-text {
+  font-family: "Inter", sans-serif;
+  font-size: 0.9rem;
+  color: rgba(237, 230, 214, 0.7);
+}
+.shield-swal-actions {
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
+.shield-swal-btn {
+  font-family: "Barlow Condensed", sans-serif;
+  font-weight: 700;
+  font-size: 1.1rem;
+  letter-spacing: 0.02em;
+  padding: 0.55rem 1.5rem;
+  border-radius: 0.375rem;
+  cursor: pointer;
+}
