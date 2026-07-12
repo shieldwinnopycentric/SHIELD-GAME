@@ -63,6 +63,7 @@ export default function GlobalLeaderboard() {
             <th className="px-2 sm:px-4 py-3 text-left">Nama</th>
             <th className="px-2 sm:px-4 py-3 text-left">Avatar</th>
             <th className="px-2 sm:px-4 py-3 text-left">Skor</th>
+            <th className="px-2 sm:px-4 py-3 text-left">Nyawa</th>
             <th className="px-2 sm:px-4 py-3 text-left">Waktu</th>
             <th className="px-2 sm:px-4 py-3 text-left">Sesi</th>
           </tr>
@@ -77,6 +78,9 @@ export default function GlobalLeaderboard() {
               <td className="px-2 sm:px-4 py-3 whitespace-nowrap">{r.player_name}</td>
               <td className="px-2 sm:px-4 py-3 text-parchment/60">{CHAR_LABELS[r.character] || r.character}</td>
               <td className="px-2 sm:px-4 py-3 font-display font-bold">{r.best_score}</td>
+              <td className="px-2 sm:px-4 py-3 text-danger">
+                {"♥".repeat(Math.max(0, r.best_lives ?? 0)) || "—"}
+              </td>
               <td className="px-2 sm:px-4 py-3">{formatTime(r.best_time_ms)}</td>
               <td className="px-2 sm:px-4 py-3 text-parchment/60">{r.sessions_played}</td>
             </tr>

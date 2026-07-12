@@ -17,6 +17,7 @@ export default function Leaderboard({ rows }) {
             <th className="px-2 sm:px-4 py-3 text-left">Waktu</th>
             <th className="px-2 sm:px-4 py-3 text-left">Benar</th>
             <th className="px-2 sm:px-4 py-3 text-left">Level</th>
+            <th className="px-2 sm:px-4 py-3 text-left">Nyawa</th>
             <th className="px-2 sm:px-4 py-3 text-left">Skor</th>
           </tr>
         </thead>
@@ -35,6 +36,9 @@ export default function Leaderboard({ rows }) {
               <td className="px-2 sm:px-4 py-3">{formatTime(r.finishTimeMs)}</td>
               <td className="px-2 sm:px-4 py-3">{r.correctCount}</td>
               <td className="px-2 sm:px-4 py-3 font-display">{r.level ?? "-"}/3</td>
+              <td className="px-2 sm:px-4 py-3">
+                <span className="text-danger">{"♥".repeat(Math.max(0, r.lives ?? 0)) || "—"}</span>
+              </td>
               <td className="px-2 sm:px-4 py-3 font-display font-bold">{r.score}</td>
             </tr>
           ))}

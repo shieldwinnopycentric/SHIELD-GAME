@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import Phaser from "phaser";
 import MainScene from "./scenes/MainScene.js";
 
-export default function PhaserGame({ socket, roomCode, player, initialRoster, currentLevel, onNearNpc }) {
+export default function PhaserGame({ socket, roomCode, player, initialRoster, currentLevel, onNearNpc, paused }) {
   const containerRef = useRef(null);
   const gameRef = useRef(null);
 
@@ -53,6 +53,16 @@ export default function PhaserGame({ socket, roomCode, player, initialRoster, cu
     const scene = gameRef.current?.scene.getScene("MainScene");
     if (scene?.setCurrentLevel) scene.setCurrentLevel(currentLevel);
   }, [currentLevel]);
+
+  // Pause the scene's update loop (movement/physics) while a full-page overlay
+  // like the GuidanceRoom is open, so the character doesn't keep drifting from
+  // stray keyboard input behind the page. Resumes when the overlay closes.
+  useEffect(() => {
+    const manager = gameRef.current?.scene;
+    if (!manager || !manager.getScene("MainScene")) return;
+    if (paused) manager.pause("MainScene");
+    else manager.resume("MainScene");
+  }, [paused]);
 
   return (
     // Fills the sized frame provided by GameScreen. touch-none stops the

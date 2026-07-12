@@ -4,6 +4,7 @@ import PhaserGame from "../game/PhaserGame.jsx";
 import HUD from "../components/HUD.jsx";
 import ChallengeModal from "../components/ChallengeModal.jsx";
 import LevelTransition from "../components/LevelTransition.jsx";
+import GuidanceRoom from "./GuidanceRoom.jsx";
 import { confirmDialog } from "../lib/dialog.js";
 
 const GAME_DURATION_MS = 15 * 60 * 1000;
@@ -14,6 +15,9 @@ export default function GameScreen({ player, roomCode, initialGameState, onGameO
   const [totalQuestions, setTotalQuestions] = useState(null);
   const [wrongInLevel, setWrongInLevel] = useState(0);
   const [maxWrong, setMaxWrong] = useState(1);
+  const [lives, setLives] = useState(2);
+  const [maxLives, setMaxLives] = useState(2);
+  const [livesLost, setLivesLost] = useState(0);
   const [score, setScore] = useState(0);
   const [correctCount, setCorrectCount] = useState(0);
   const [timeLeftMs, setTimeLeftMs] = useState(GAME_DURATION_MS);
@@ -22,7 +26,8 @@ export default function GameScreen({ player, roomCode, initialGameState, onGameO
 
   const [challenge, setChallenge] = useState(null);
   const [resultState, setResultState] = useState(null);
-  const [transition, setTransition] = useState(null); // { type, ... }
+  const [transition, setTransition] = useState(null); // { type, ... } (passed/won)
+  const [roomView, setRoomView] = useState(null); // halaman ruang kegagalan (failed)
 
   const startRef = useRef(Date.now());
   const pendingLevelRef = useRef(null); // stashes level info while a per-question result is shown
@@ -59,6 +64,8 @@ export default function GameScreen({ player, roomCode, initialGameState, onGameO
       setTotalQuestions(res.challenge.totalQuestions);
       setWrongInLevel(res.challenge.wrongInLevel);
       setMaxWrong(res.challenge.maxWrong);
+      setLives(res.challenge.lives);
+      setMaxLives(res.challenge.maxLives);
       setResultState(null);
     });
   }
@@ -68,7 +75,7 @@ export default function GameScreen({ player, roomCode, initialGameState, onGameO
   // fresh question only ever appears from physically approaching the
   // right NPC, never automatically.
   function handleNearNpc() {
-    if (finished || challenge || transition) return;
+    if (finished || challenge || transition || roomView) return;
     requestChallenge();
   }
 
@@ -84,6 +91,9 @@ export default function GameScreen({ player, roomCode, initialGameState, onGameO
         setQuestionNumber(res.questionIndex + 1); // upcoming question, 1-based
         setWrongInLevel(res.wrongInLevel);
         setMaxWrong(res.maxWrong);
+        setLives(res.lives);
+        setMaxLives(res.maxLives);
+        if (!res.correct) setLivesLost((n) => n + 1);
         if (res.correct) setCorrectCount((c) => c + 1);
 
         setResultState({ correct: res.correct, feedback: res.feedback });
@@ -121,15 +131,23 @@ export default function GameScreen({ player, roomCode, initialGameState, onGameO
     }
 
     if (res.result === "levelFailed") {
-      setTransition({
-        type: "failed",
+      // Bukan popup: pemain auto-masuk ke HALAMAN ruang (GuidanceRoom) untuk
+      // membaca materi literasi dulu sebelum boleh mengulang level.
+      setRoomView({
         failRoom: res.failRoom,
         failedLevel: res.failedLevel,
         repeatLevel: res.repeatLevel,
-        wrongCount: res.wrongCount,
-        maxWrong: res.maxWrong,
+        maxLives: res.maxLives,
+        character: player.character,
       });
     }
+  }
+
+  // Tombol "Kembali ke Game" di halaman ruang (aktif setelah materi dibaca).
+  // Server sudah mereset pemain ke repeatLevel dengan nyawa penuh, jadi cukup
+  // menutup halaman — pemain lalu mendekati NPC level itu untuk lanjut.
+  function handleRoomExit() {
+    setRoomView(null);
   }
 
   // Builds a leaderboard row from THIS player's own final stats and jumps
@@ -144,6 +162,8 @@ export default function GameScreen({ player, roomCode, initialGameState, onGameO
         finishTimeMs: Date.now() - startRef.current,
         correctCount,
         level,
+        lives,
+        livesLost,
         won,
         score,
         disconnected: false,
@@ -194,6 +214,7 @@ export default function GameScreen({ player, roomCode, initialGameState, onGameO
           initialRoster={initialGameState?.roster || []}
           currentLevel={level}
           onNearNpc={handleNearNpc}
+          paused={!!roomView}
         />
 
         <div className="absolute top-1.5 left-1.5 right-12 z-20 pointer-events-none">
@@ -203,6 +224,8 @@ export default function GameScreen({ player, roomCode, initialGameState, onGameO
             totalQuestions={totalQuestions}
             wrongInLevel={wrongInLevel}
             maxWrong={maxWrong}
+            lives={lives}
+            maxLives={maxLives}
             score={score}
             timeLeftMs={timeLeftMs}
           />
@@ -241,6 +264,8 @@ export default function GameScreen({ player, roomCode, initialGameState, onGameO
       />
 
       <LevelTransition info={transition} onContinue={handleTransitionContinue} />
+
+      {roomView && <GuidanceRoom info={roomView} onBackToGame={handleRoomExit} />}
     </div>
   );
 }

@@ -13,15 +13,20 @@ import { supabase } from "../lib/supabaseClient.js";
  *  2. Pemain memilih respon terbaik (menyanggah)
  *  3. Penjelasan singkat (refutation) ditampilkan sebagai feedback
  *
- * Mekanik (ambang salah per-level — tidak ada lagi nyawa global):
- *  - Level 1 = 3 soal, boleh salah maks 1 -> lolos ke Level 2. Salah > 1 ->
- *    masuk "Ruang Bimbingan" lalu MENGULANG Level 1.
- *  - Level 2 = 6 soal, boleh salah maks 2 -> lolos ke Level 3. Salah > 2 ->
- *    masuk "Rumah Sakit" lalu MENGULANG Level 2.
- *  - Level 3 = 10 soal, boleh salah maks 2 -> MENANG (langsung ke
- *    leaderboard). Salah > 2 -> kembali MENGULANG Level 2.
- *  - Lolos/gagal dievaluasi di AKHIR level (semua soal dijawab dulu), lihat
- *    LEVEL_META (jumlah soal + maks salah + failRoom + failGoTo) dan
+ * Mekanik (NYAWA per-level, memicu kegagalan secara LANGSUNG):
+ *  - Tiap level memberi "nyawa" = jatah salah yang ditoleransi (L1=1, L2=2,
+ *    L3=2). Jawaban salah memakai jatah itu; begitu salah MELEBIHI nyawa,
+ *    pemain LANGSUNG dikirim ke ruang bertema (tanpa menyelesaikan sisa soal)
+ *    lalu MENGULANG level dengan nyawa penuh kembali (checkpoint). Contoh:
+ *    L1 punya 1 nyawa -> boleh salah 1x, gagal saat salah ke-2.
+ *  - Level 1 = 3 soal, nyawa 1. Gagal -> "Ruang Bimbingan" -> ulang L1.
+ *  - Level 2 = 6 soal, nyawa 2. Gagal -> "Rumah Sakit" -> ulang L2.
+ *  - Level 3 = 10 soal, nyawa 2. Gagal -> "Penjara" -> ulang L3.
+ *    Menyelesaikan semua soal L3 tanpa melebihi jatah salah = MENANG (langsung
+ *    ke leaderboard); sisa nyawa memberi bonus skor.
+ *  - Nyawa juga jadi indikator ranking: sisa nyawa saat menang menambah skor,
+ *    dan total nyawa hilang (livesLost) jadi tie-breaker saat skor seri. Lihat
+ *    LEVEL_META (jumlah soal + maks salah + nyawa + failRoom + failGoTo) dan
  *    backend/game/roomManager.js (applyAnswer) untuk detailnya.
  *  - Jumlah soal target ada di LEVEL_META.questions. Kalau bank soal untuk
  *    sebuah level lebih sedikit dari target, getChallenge() otomatis
@@ -348,14 +353,21 @@ const SEED_CHALLENGES = {
 // Aturan tiap level:
 //   questions = jumlah soal disediakan di level itu
 //   maxWrong  = batas salah MASIH lolos (salah > maxWrong = gagal)
+//   lives     = "nyawa" = jatah salah yang ditoleransi (= maxWrong). Salah
+//               melebihi nyawa = LANGSUNG gagal (masuk failRoom) lalu ulang
+//               level. L1=1 nyawa (boleh salah 1x), L2/L3=2 nyawa.
 //   failRoom  = nama ruang bertema yang ditampilkan saat gagal
-//   failGoTo  = level yang diulang saat gagal (L3 gagal -> balik ke L2)
+//   failGoTo  = level yang diulang saat gagal (tiap level mengulang dirinya)
 //   opponents = flavor "1 vs N" musuh di peta (tidak memengaruhi mekanik)
 export const LEVEL_META = {
-  1: { name: "Level 1", opponents: 1, questions: 3, maxWrong: 1, failRoom: "Ruang Bimbingan", failGoTo: 1 },
-  2: { name: "Level 2", opponents: 3, questions: 6, maxWrong: 2, failRoom: "Rumah Sakit", failGoTo: 2 },
-  3: { name: "Level 3", opponents: 5, questions: 10, maxWrong: 2, failRoom: "Rumah Sakit", failGoTo: 2 },
+  1: { name: "Level 1", opponents: 1, questions: 3, maxWrong: 1, lives: 1, failRoom: "Ruang Bimbingan", failGoTo: 1 },
+  2: { name: "Level 2", opponents: 3, questions: 6, maxWrong: 2, lives: 2, failRoom: "Rumah Sakit", failGoTo: 2 },
+  3: { name: "Level 3", opponents: 5, questions: 10, maxWrong: 2, lives: 2, failRoom: "Penjara", failGoTo: 3 },
 };
+
+// Bonus skor per sisa nyawa saat MENANG (Level 3 tuntas) — membuat nyawa
+// benar-benar berarti untuk peringkat, bukan sekadar indikator gagal.
+export const LIFE_BONUS = 150;
 
 // Live in-memory cache the game engine actually reads from. Starts as the
 // seed content and gets replaced by loadChallengesFromDB() at server
@@ -430,6 +442,13 @@ export function levelQuestionCount(level) {
 /** Batas salah yang masih dianggap lolos untuk sebuah level. */
 export function levelMaxWrong(level) {
   return LEVEL_META[level]?.maxWrong ?? 0;
+}
+
+/** "Nyawa" untuk sebuah level = jatah salah yang ditoleransi (= maxWrong).
+ * Dipakai saat masuk/ulang level untuk mengisi ulang nyawa pemain
+ * (checkpoint). Salah melebihi nyawa ini = gagal. */
+export function levelLives(level) {
+  return LEVEL_META[level]?.lives ?? levelMaxWrong(level);
 }
 
 // ---- Admin CRUD (all operate directly on Supabase, then refresh the

@@ -25,6 +25,7 @@ import {
   getChallenge,
   levelQuestionCount,
   levelMaxWrong,
+  levelLives,
   LEVEL_META,
   loadChallengesFromDB,
   adminListChallenges,
@@ -72,6 +73,8 @@ function publicPlayers(room) {
     level: p.level,
     questionIndex: p.questionIndex,
     wrongInLevel: p.wrongInLevel,
+    lives: p.lives,
+    livesLost: p.livesLost,
     correctCount: p.correctCount,
     score: p.score,
     finished: p.finished,
@@ -110,6 +113,8 @@ async function persistResults(room) {
     finish_time_ms: r.finishTimeMs,
     correct_count: r.correctCount,
     attempts_used: r.attempts,
+    lives_remaining: r.lives,
+    lives_lost: r.livesLost,
     total_score: r.score,
   }));
   try {
@@ -281,6 +286,8 @@ io.on("connection", (socket) => {
       totalQuestions: levelQuestionCount(player.level),
       wrongInLevel: player.wrongInLevel,
       maxWrong: levelMaxWrong(player.level),
+      lives: player.lives,
+      maxLives: levelLives(player.level),
       options: challenge.options.map((o, idx) => ({ idx, text: o.text })),
     };
     cb?.({ ok: true, challenge: safeChallenge });
@@ -302,10 +309,12 @@ io.on("connection", (socket) => {
       player: updated,
       result,
       won,
+      clearedLevel,
       failRoom,
       failedLevel,
       repeatLevel,
       wrongCount,
+      livesRemaining,
     } = applyAnswer(room, socket.id, correct);
 
     cb?.({
@@ -314,6 +323,7 @@ io.on("connection", (socket) => {
       feedback: challenge.feedback,
       result, // "continue" | "levelPassed" | "levelFailed"
       won: !!won,
+      clearedLevel: clearedLevel ?? null, // level yang BARU SAJA dilewati (untuk popup)
       failRoom: failRoom || null,
       failedLevel: failedLevel ?? null,
       repeatLevel: repeatLevel ?? null,
@@ -323,6 +333,10 @@ io.on("connection", (socket) => {
       totalQuestions: levelQuestionCount(updated.level),
       wrongInLevel: updated.wrongInLevel,
       maxWrong: levelMaxWrong(updated.level),
+      lives: updated.lives,
+      maxLives: levelLives(updated.level),
+      livesRemaining: livesRemaining ?? updated.lives,
+      character: updated.character,
       score: updated.score,
       finished: updated.finished,
     });

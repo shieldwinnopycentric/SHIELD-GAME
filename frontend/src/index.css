@@ -8,10 +8,6 @@ html, body, #root {
 
 body {
   font-family: "Inter", sans-serif;
-  /* Latar mengacu ke palet Mario (mix & match): near-black sebagai dasar
-     (peran hitam), glow biru dominan dari atas (aksen primer), plus sorotan
-     tipis merah & kuning di sudut bawah. Semua alpha rendah supaya panel &
-     teks tetap kontras. */
   background:
     radial-gradient(circle at 50% -10%, rgba(4, 156, 216, 0.20), transparent 55%),
     radial-gradient(circle at 8% 108%, rgba(229, 37, 33, 0.08), transparent 45%),
@@ -50,6 +46,30 @@ body {
 .zoom-in-title {
   animation: shield-zoom-in 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
+
+/* ---- Ruang kegagalan (GuidanceRoom): animasi masuk avatar + konten ----- */
+@keyframes room-avatar-in {
+  0%   { transform: translateX(-44px) scale(0.55); opacity: 0; }
+  65%  { transform: translateX(6px) scale(1.06);   opacity: 1; }
+  100% { transform: translateX(0) scale(1);        opacity: 1; }
+}
+@keyframes room-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-6px); }
+}
+@keyframes room-bubble-in {
+  0%   { transform: translateY(10px) scale(0.98); opacity: 0; }
+  100% { transform: translateY(0) scale(1);       opacity: 1; }
+}
+@keyframes room-fade-up {
+  0%   { transform: translateY(16px); opacity: 0; }
+  100% { transform: translateY(0);    opacity: 1; }
+}
+.room-avatar-in { animation: room-avatar-in 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+/* float dimulai setelah animasi masuk selesai supaya tidak bertabrakan */
+.room-avatar-float { animation: room-float 3s ease-in-out 0.7s infinite; }
+.room-bubble-in { animation: room-bubble-in 0.5s ease 0.35s both; }
+.room-fade-up { animation: room-fade-up 0.5s ease 0.5s both; }
 
 /* ---- Sentuhan pixel-game (medium) ------------------------------------- */
 

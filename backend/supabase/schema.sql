@@ -10,12 +10,21 @@ create table if not exists game_results (
   finish_time_ms bigint,
   correct_count int not null default 0,
   attempts_used int not null default 0, -- berapa kali level diulang (gagal) sepanjang game
+  lives_remaining int not null default 0, -- sisa nyawa saat game selesai (indikator ranking)
+  lives_lost int not null default 0, -- total nyawa hilang sepanjang game (tie-breaker ranking)
   total_score int not null default 0,
   created_at timestamptz not null default now()
 );
 
 create index if not exists idx_game_results_room on game_results (room_code);
 create index if not exists idx_game_results_score on game_results (total_score desc);
+
+-- Kolom nyawa ditambahkan setelah rilis awal. `create table if not exists`
+-- tidak menyentuh tabel yang sudah ada, jadi tambahkan lewat ALTER idempoten
+-- supaya schema.sql memperbaiki dirinya sendiri saat dijalankan ulang di DB
+-- yang tabelnya dibuat oleh versi lama (tanpa kolom nyawa).
+alter table game_results add column if not exists lives_remaining int not null default 0;
+alter table game_results add column if not exists lives_lost int not null default 0;
 
 -- `create table if not exists` tidak menyentuh tabel yang sudah ada, jadi
 -- kalau tabel dibuat oleh schema versi lama (mis. nilai character berbeda
@@ -33,6 +42,8 @@ select
   character,
   max(total_score) as best_score,
   min(finish_time_ms) as best_time_ms,
+  max(lives_remaining) as best_lives,
+  min(lives_lost) as fewest_lives_lost,
   count(*) as sessions_played
 from game_results
 group by player_name, character

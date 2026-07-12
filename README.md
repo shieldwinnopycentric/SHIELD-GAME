@@ -42,23 +42,31 @@ shield-game/
    - 3 titik NPC = **Level 1 (1 vs 1), Level 2 (1 vs 3), Level 3 (1 vs 5)** —
      jumlah musuh ditampilkan langsung di map sebagai ikon berkelompok di
      tiap marker.
-   - Mendekati NPC memicu rangkaian **soal** untuk level itu. Evaluasi
-     lolos/gagal dilakukan di **akhir level** (bukan per-soal), sesuai
-     `KONSEP_GAME_SHIELD.pdf`:
+   - Mendekati NPC memicu rangkaian **soal** untuk level itu. Tiap level
+     memberi **nyawa** = jatah salah yang ditoleransi. Jawaban salah memakai
+     jatah itu; begitu **salah melebihi nyawa, pemain LANGSUNG** dikirim ke
+     ruang bertema (tanpa menyelesaikan sisa soal) lalu mengulang level dengan
+     nyawa penuh (mis. L1 punya 1 nyawa → boleh salah 1×, gagal di salah ke-2):
 
-     | Level | Jumlah Soal | Boleh Salah Maks. | Kalau Lolos | Kalau Gagal |
+     | Level | Jumlah Soal | Nyawa | Kalau Lolos | Kalau Salah Melebihi Nyawa |
      |---|---|---|---|---|
      | 1 | 3 | 1 | Lanjut Level 2 | Dikirim ke **Ruang Bimbingan**, ulang Level 1 |
      | 2 | 6 | 2 | Lanjut Level 3 | Dikirim ke **Rumah Sakit**, ulang Level 2 |
-     | 3 | 10 | 2 | **Menang** → Leaderboard | Dikirim ke **Rumah Sakit**, ulang Level 3 |
+     | 3 | 10 | 2 | **Menang** → Leaderboard | Dikirim ke **Penjara**, ulang Level 3 |
+
+   - **Nyawa juga indikator ranking**: sisa nyawa saat menang menambah skor
+     (bonus), dan total nyawa yang hilang jadi tie-breaker saat skor seri.
+   - Ruang Bimbingan/Rumah Sakit/Penjara ditampilkan sebagai interstitial
+     ber-**avatar 2D + gelembung chat** bertema per ruang sebelum mengulang.
 
    - Tiap soal tetap pakai gaya Teori Inokulasi: skenario ajakan/misinformasi
      lemah → pemain pilih respon menyanggah terbaik → feedback singkat (refutation).
    - Setiap pemain menyelesaikan challenge secara **mandiri**, tidak perlu
      menunggu pemain lain. Pemain yang disconnect otomatis dianggap selesai.
-6. **Hasil & Leaderboard**: ranking berdasarkan skor lalu waktu penyelesaian,
-   ditampilkan setelah semua pemain selesai atau waktu 15 menit habis.
-   Hasil disimpan ke Supabase (`game_results`, view `global_leaderboard`).
+6. **Hasil & Leaderboard**: ranking berdasarkan skor, lalu **sisa/kehilangan
+   nyawa**, lalu waktu penyelesaian — ditampilkan setelah semua pemain selesai
+   atau waktu 15 menit habis. Hasil disimpan ke Supabase (`game_results`, view
+   `global_leaderboard`).
 
 > Progres per pemain (level, soal ke-berapa, jumlah salah, skor) juga
 > di-mirror ke tabel `room_snapshots` di Supabase setiap ada event penting
@@ -86,10 +94,11 @@ edukasi tanpa perlu ubah kode:
   login multi-user). Jangan bagikan `ADMIN_TOKEN` secara publik.
 - Jawaban benar (`correct: true/false`) hanya pernah dibaca lewat *service role
   key* di backend — tidak pernah dikirim ke browser pemain saat main game.
-- Batas "boleh salah maks." per level (1/2/2) ditentukan di
-  `LEVEL_META` (`backend/game/challenges.js`), terpisah dari jumlah soal —
-  kalau admin menambah/mengurangi jumlah soal suatu level, ambang toleransi
-  itu tetap tidak berubah otomatis (ubah manual di kode kalau perlu).
+- Jatah **nyawa** per level (1/2/2) & ruang kegagalannya (Ruang Bimbingan /
+  Rumah Sakit / Penjara) ditentukan di `LEVEL_META`
+  (`backend/game/challenges.js`), terpisah dari jumlah soal — kalau admin
+  menambah/mengurangi jumlah soal suatu level, jatah nyawa itu tetap tidak
+  berubah otomatis (ubah manual di kode kalau perlu).
 
 ## Menjalankan Secara Lokal
 
