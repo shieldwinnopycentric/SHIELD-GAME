@@ -4,6 +4,21 @@ const SERVER_URL = import.meta.env.VITE_SERVER_URL || "http://localhost:4000";
 const TOKEN_STORAGE_KEY = "shield_admin_token";
 
 const LEVELS = [1, 2, 3];
+// Target jumlah soal per level menurut desain mekanik game — harus sinkron
+// dengan LEVEL_META.questions di backend/game/challenges.js.
+const LEVEL_TARGETS = { 1: 3, 2: 6, 3: 10 };
+const LEVEL_ACCENTS = {
+  1: { text: "text-primary", border: "border-primary", bg: "bg-primary" },
+  2: { text: "text-success", border: "border-success", bg: "bg-success" },
+  3: { text: "text-danger", border: "border-danger", bg: "bg-danger" },
+};
+// Aksen per ruang — senada dengan tema GuidanceRoom (biru/merah/kuning).
+const ROOM_ACCENTS = {
+  bimbingan: { text: "text-primary", border: "border-primary", icon: "🧭" },
+  "rumah-sakit": { text: "text-danger", border: "border-danger", icon: "🏥" },
+  penjara: { text: "text-gold", border: "border-gold", icon: "⛓️" },
+};
+
 const emptyForm = {
   level: 1,
   npc: "",
@@ -31,6 +46,10 @@ async function api(path, token, options = {}) {
   if (!res.ok) throw new Error(data.error || `Request gagal (${res.status})`);
   return data;
 }
+
+/* ------------------------------------------------------------------ */
+/* Login                                                                */
+/* ------------------------------------------------------------------ */
 
 function LoginForm({ onLogin }) {
   const [token, setToken] = useState("");
@@ -61,9 +80,19 @@ function LoginForm({ onLogin }) {
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
-      <form onSubmit={handleSubmit} className="w-full max-w-sm bg-panel border border-line rounded-lg p-6">
-        <h1 className="font-display text-3xl font-bold mb-1">SHIELD Admin</h1>
-        <p className="text-parchment/50 text-sm mb-6">Kelola soal/challenge edukasi per level.</p>
+      <form
+        onSubmit={handleSubmit}
+        className="w-full max-w-sm bg-panel border border-line rounded-xl p-6 shadow-2xl"
+      >
+        <div className="flex items-center gap-3 mb-1">
+          <span className="w-10 h-10 rounded-lg bg-shield/15 border border-shield flex items-center justify-center text-xl">
+            🛡️
+          </span>
+          <h1 className="font-display text-3xl font-bold">SHIELD Admin</h1>
+        </div>
+        <p className="text-parchment/50 text-sm mb-6">
+          Dashboard konten: bank soal &amp; materi ruang edukasi.
+        </p>
         <input
           type="password"
           autoFocus
@@ -86,6 +115,59 @@ function LoginForm({ onLogin }) {
     </div>
   );
 }
+
+/* ------------------------------------------------------------------ */
+/* Bangunan kecil dashboard                                             */
+/* ------------------------------------------------------------------ */
+
+function SectionHeader({ title, subtitle, children }) {
+  return (
+    <div className="flex flex-wrap items-end justify-between gap-3 mb-5">
+      <div>
+        <h2 className="font-display text-2xl font-bold">{title}</h2>
+        {subtitle && <p className="text-parchment/50 text-sm mt-0.5">{subtitle}</p>}
+      </div>
+      {children && <div className="flex gap-2">{children}</div>}
+    </div>
+  );
+}
+
+function StatCard({ label, value, sub, accent = "text-parchment" }) {
+  return (
+    <div className="bg-panel border border-line rounded-xl p-4">
+      <p className="text-[11px] uppercase tracking-wider text-parchment/45">{label}</p>
+      <p className={`font-display text-3xl font-bold mt-1 ${accent}`}>{value}</p>
+      {sub && <p className="text-parchment/45 text-xs mt-1">{sub}</p>}
+    </div>
+  );
+}
+
+function Badge({ children, tone = "line" }) {
+  const tones = {
+    line: "border-line text-parchment/60",
+    success: "border-success/60 text-success bg-success/10",
+    gold: "border-gold/60 text-gold bg-gold/10",
+  };
+  return (
+    <span className={`inline-block text-[11px] px-2 py-0.5 rounded-full border ${tones[tone]}`}>
+      {children}
+    </span>
+  );
+}
+
+function SeedOnlyBanner() {
+  return (
+    <div className="bg-alert/10 border border-alert rounded-xl p-4 mb-5 text-sm">
+      Supabase belum di-set di backend (<code>SUPABASE_URL</code> /{" "}
+      <code>SUPABASE_SERVICE_ROLE_KEY</code>), jadi dashboard hanya menampilkan konten bawaan
+      (read-only). Set env itu dulu untuk bisa menambah/mengedit/menghapus dari sini.
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Bank Soal                                                            */
+/* ------------------------------------------------------------------ */
 
 function ChallengeForm({ initial, onCancel, onSave }) {
   const [form, setForm] = useState(initial || emptyForm);
@@ -129,8 +211,8 @@ function ChallengeForm({ initial, onCancel, onSave }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="bg-panel border border-shield rounded-lg p-5 space-y-4">
-      <div className="flex gap-4">
+    <form onSubmit={handleSubmit} className="bg-panel border border-shield rounded-xl p-5 space-y-4">
+      <div className="flex flex-wrap gap-4">
         <div>
           <label className="block text-xs text-parchment/50 uppercase mb-1">Level</label>
           <select
@@ -145,7 +227,7 @@ function ChallengeForm({ initial, onCancel, onSave }) {
             ))}
           </select>
         </div>
-        <div className="flex-1">
+        <div className="flex-1 min-w-[220px]">
           <label className="block text-xs text-parchment/50 uppercase mb-1">NPC / Sumber</label>
           <input
             value={form.npc}
@@ -237,33 +319,10 @@ function ChallengeForm({ initial, onCancel, onSave }) {
   );
 }
 
-function AdminDashboard({ token, onLogout }) {
-  const [rows, setRows] = useState([]);
-  const [seedOnly, setSeedOnly] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+function BankSoalSection({ token, rows, seedOnly, loading, error, onRefresh }) {
   const [activeLevel, setActiveLevel] = useState(1);
   const [editing, setEditing] = useState(null); // null | "new" | row
   const [seeding, setSeeding] = useState(false);
-
-  async function refresh() {
-    setLoading(true);
-    setError("");
-    try {
-      const data = await api("/api/admin/challenges", token);
-      setRows(data.rows || []);
-      setSeedOnly(!!data.seedOnly);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    refresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   async function handleSave(form) {
     const payload = {
@@ -286,14 +345,14 @@ function AdminDashboard({ token, onLogout }) {
       });
     }
     setEditing(null);
-    refresh();
+    onRefresh();
   }
 
   async function handleDelete(id) {
     if (!confirm("Hapus soal ini?")) return;
     try {
       await api(`/api/admin/challenges/${id}`, token, { method: "DELETE" });
-      refresh();
+      onRefresh();
     } catch (err) {
       alert(err.message);
     }
@@ -303,7 +362,7 @@ function AdminDashboard({ token, onLogout }) {
     setSeeding(true);
     try {
       await api("/api/admin/challenges/seed", token, { method: "POST" });
-      refresh();
+      onRefresh();
     } catch (err) {
       alert(err.message);
     } finally {
@@ -312,35 +371,28 @@ function AdminDashboard({ token, onLogout }) {
   }
 
   const levelRows = rows.filter((r) => r.level === activeLevel);
+  const accent = LEVEL_ACCENTS[activeLevel];
 
   return (
-    <div className="min-h-screen p-6 max-w-4xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="font-display text-3xl font-bold">SHIELD Admin — Bank Soal</h1>
-          <p className="text-parchment/50 text-sm">Kelola skenario/challenge edukasi per level.</p>
-        </div>
-        <button
-          onClick={() => {
-            localStorage.removeItem(TOKEN_STORAGE_KEY);
-            onLogout();
-          }}
-          className="text-parchment/50 text-sm hover:text-parchment"
-        >
-          Keluar
-        </button>
-      </div>
+    <div>
+      <SectionHeader
+        title="Bank Soal"
+        subtitle="Skenario ajakan/misinformasi + pilihan respon per level."
+      >
+        {!seedOnly && (
+          <button
+            onClick={() => setEditing("new")}
+            className="bg-primary text-void font-display font-bold px-4 py-2 rounded-md"
+          >
+            + Tambah Soal
+          </button>
+        )}
+      </SectionHeader>
 
-      {seedOnly && (
-        <div className="bg-alert/10 border border-alert rounded-lg p-4 mb-5 text-sm">
-          Supabase belum di-set di backend (<code>SUPABASE_URL</code> /{" "}
-          <code>SUPABASE_SERVICE_ROLE_KEY</code>), jadi ini hanya menampilkan soal bawaan (read-only).
-          Set dulu env itu untuk bisa menambah/mengedit/menghapus soal dari sini.
-        </div>
-      )}
+      {seedOnly && <SeedOnlyBanner />}
 
       {!seedOnly && rows.length === 0 && !loading && (
-        <div className="bg-panel border border-line rounded-lg p-4 mb-5 text-sm flex items-center justify-between">
+        <div className="bg-panel border border-line rounded-xl p-4 mb-5 text-sm flex flex-wrap items-center justify-between gap-3">
           <span>Tabel soal masih kosong. Mulai dari soal bawaan (bisa diedit setelahnya)?</span>
           <button
             onClick={handleSeed}
@@ -353,25 +405,29 @@ function AdminDashboard({ token, onLogout }) {
       )}
 
       <div className="flex gap-2 mb-4">
-        {LEVELS.map((l) => (
-          <button
-            key={l}
-            onClick={() => setActiveLevel(l)}
-            className={`px-4 py-2 rounded-md font-display ${
-              activeLevel === l ? "bg-shield text-void" : "bg-panel border border-line text-parchment/70"
-            }`}
-          >
-            Level {l}
-          </button>
-        ))}
-        {!seedOnly && (
-          <button
-            onClick={() => setEditing("new")}
-            className="ml-auto bg-primary text-void font-display font-bold px-4 py-2 rounded-md"
-          >
-            + Tambah Soal
-          </button>
-        )}
+        {LEVELS.map((l) => {
+          const count = rows.filter((r) => r.level === l).length;
+          return (
+            <button
+              key={l}
+              onClick={() => setActiveLevel(l)}
+              className={`px-4 py-2 rounded-md font-display flex items-center gap-2 ${
+                activeLevel === l
+                  ? `${LEVEL_ACCENTS[l].bg} text-void font-bold`
+                  : "bg-panel border border-line text-parchment/70"
+              }`}
+            >
+              Level {l}
+              <span
+                className={`text-xs px-1.5 py-0.5 rounded-full ${
+                  activeLevel === l ? "bg-void/20" : "bg-void border border-line"
+                }`}
+              >
+                {count}
+              </span>
+            </button>
+          );
+        })}
       </div>
 
       {error && <p className="text-danger text-sm mb-3">{error}</p>}
@@ -380,9 +436,7 @@ function AdminDashboard({ token, onLogout }) {
       {editing && (
         <div className="mb-5">
           <ChallengeForm
-            initial={
-              editing === "new" ? { ...emptyForm, level: activeLevel } : editing
-            }
+            initial={editing === "new" ? { ...emptyForm, level: activeLevel } : editing}
             onCancel={() => setEditing(null)}
             onSave={handleSave}
           />
@@ -390,11 +444,13 @@ function AdminDashboard({ token, onLogout }) {
       )}
 
       <div className="space-y-3">
-        {levelRows.map((row) => (
-          <div key={row.id} className="bg-panel border border-line rounded-lg p-4">
+        {levelRows.map((row, i) => (
+          <div key={row.id} className="bg-panel border border-line rounded-xl p-4">
             <div className="flex justify-between items-start gap-3">
               <div>
-                <p className="text-primary text-xs font-display uppercase tracking-wider">{row.npc}</p>
+                <p className={`${accent.text} text-xs font-display uppercase tracking-wider`}>
+                  #{i + 1} · {row.npc}
+                </p>
                 <p className="text-sm mt-1">{row.prompt}</p>
               </div>
               {!seedOnly && (
@@ -414,10 +470,10 @@ function AdminDashboard({ token, onLogout }) {
                 </div>
               )}
             </div>
-            <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-              {row.options.map((o, i) => (
+            <div className="mt-3 grid sm:grid-cols-2 gap-2 text-sm">
+              {row.options.map((o, idx) => (
                 <div
-                  key={i}
+                  key={idx}
                   className={`px-3 py-2 rounded-md border ${
                     o.correct ? "border-success bg-success/10" : "border-line"
                   }`}
@@ -433,6 +489,541 @@ function AdminDashboard({ token, onLogout }) {
           <p className="text-parchment/40 text-sm">Belum ada soal di level ini.</p>
         )}
       </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Materi Ruang (Ruang Bimbingan / Rumah Sakit / Penjara)               */
+/* ------------------------------------------------------------------ */
+
+function RoomMaterialForm({ room, seedOnly, onSave, onReset }) {
+  const [form, setForm] = useState({
+    speaker: room.speaker,
+    greeting: room.greeting,
+    title: room.title,
+    sections: room.sections.map((s) => ({ ...s })),
+  });
+  const [saving, setSaving] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [error, setError] = useState("");
+  const [savedAt, setSavedAt] = useState(null);
+
+  // Re-sync form kalau admin pindah ruang (komponen di-remount lewat key,
+  // tapi jaga-jaga kalau parent me-reuse instance).
+  useEffect(() => {
+    setForm({
+      speaker: room.speaker,
+      greeting: room.greeting,
+      title: room.title,
+      sections: room.sections.map((s) => ({ ...s })),
+    });
+    setError("");
+    setSavedAt(null);
+  }, [room]);
+
+  const accent = ROOM_ACCENTS[room.key];
+
+  function updateSection(idx, field, value) {
+    const sections = form.sections.map((s, i) => (i === idx ? { ...s, [field]: value } : s));
+    setForm({ ...form, sections });
+  }
+
+  function addSection() {
+    setForm({ ...form, sections: [...form.sections, { heading: "", body: "" }] });
+  }
+
+  function removeSection(idx) {
+    if (form.sections.length <= 1) return;
+    setForm({ ...form, sections: form.sections.filter((_, i) => i !== idx) });
+  }
+
+  function moveSection(idx, dir) {
+    const to = idx + dir;
+    if (to < 0 || to >= form.sections.length) return;
+    const sections = [...form.sections];
+    [sections[idx], sections[to]] = [sections[to], sections[idx]];
+    setForm({ ...form, sections });
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError("");
+    if (!form.speaker.trim() || !form.greeting.trim() || !form.title.trim()) {
+      setError("Pembicara, sapaan, dan judul materi wajib diisi.");
+      return;
+    }
+    if (form.sections.some((s) => !s.heading.trim() || !s.body.trim())) {
+      setError("Setiap bagian materi wajib punya judul dan isi.");
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSave(room.key, form);
+      setSavedAt(Date.now());
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleReset() {
+    if (!confirm(`Kembalikan materi "${room.name}" ke versi bawaan? Perubahan kustom akan dihapus.`))
+      return;
+    setResetting(true);
+    setError("");
+    try {
+      await onReset(room.key);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setResetting(false);
+    }
+  }
+
+  return (
+    <form
+      onSubmit={handleSubmit}
+      className={`bg-panel border ${accent.border} rounded-xl p-5 space-y-4`}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <p className={`font-display text-lg font-bold ${accent.text}`}>
+          {accent.icon} {room.name}
+        </p>
+        <div className="flex items-center gap-2">
+          {room.custom ? <Badge tone="gold">Kustom</Badge> : <Badge>Bawaan</Badge>}
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-4">
+        <div className="w-48">
+          <label className="block text-xs text-parchment/50 uppercase mb-1">Pembicara</label>
+          <input
+            value={form.speaker}
+            onChange={(e) => setForm({ ...form, speaker: e.target.value })}
+            disabled={seedOnly}
+            className="w-full bg-void border border-line rounded-md px-3 py-2 disabled:opacity-60"
+            placeholder="Konselor / Dokter / Petugas"
+          />
+        </div>
+        <div className="flex-1 min-w-[240px]">
+          <label className="block text-xs text-parchment/50 uppercase mb-1">Judul Materi</label>
+          <input
+            value={form.title}
+            onChange={(e) => setForm({ ...form, title: e.target.value })}
+            disabled={seedOnly}
+            className="w-full bg-void border border-line rounded-md px-3 py-2 disabled:opacity-60"
+          />
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-xs text-parchment/50 uppercase mb-1">
+          Sapaan Pembuka (gelembung chat saat pemain masuk)
+        </label>
+        <textarea
+          value={form.greeting}
+          onChange={(e) => setForm({ ...form, greeting: e.target.value })}
+          disabled={seedOnly}
+          rows={2}
+          className="w-full bg-void border border-line rounded-md px-3 py-2 disabled:opacity-60"
+        />
+      </div>
+
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <label className="text-xs text-parchment/50 uppercase">
+            Bagian Materi ({form.sections.length})
+          </label>
+          {!seedOnly && (
+            <button
+              type="button"
+              onClick={addSection}
+              className="text-shield text-sm hover:underline"
+            >
+              + Tambah Bagian
+            </button>
+          )}
+        </div>
+        <div className="space-y-3">
+          {form.sections.map((s, idx) => (
+            <div key={idx} className="bg-void/50 border border-line rounded-lg p-3">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-parchment/40 text-xs w-6 shrink-0">#{idx + 1}</span>
+                <input
+                  value={s.heading}
+                  onChange={(e) => updateSection(idx, "heading", e.target.value)}
+                  disabled={seedOnly}
+                  placeholder="Judul bagian"
+                  className="flex-1 bg-void border border-line rounded-md px-3 py-1.5 text-sm disabled:opacity-60"
+                />
+                {!seedOnly && (
+                  <div className="flex gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => moveSection(idx, -1)}
+                      disabled={idx === 0}
+                      className="w-7 h-7 rounded border border-line text-parchment/60 disabled:opacity-30 hover:border-parchment/40"
+                      title="Naikkan"
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => moveSection(idx, 1)}
+                      disabled={idx === form.sections.length - 1}
+                      className="w-7 h-7 rounded border border-line text-parchment/60 disabled:opacity-30 hover:border-parchment/40"
+                      title="Turunkan"
+                    >
+                      ↓
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removeSection(idx)}
+                      disabled={form.sections.length <= 1}
+                      className="w-7 h-7 rounded border border-line text-danger disabled:opacity-30 hover:border-danger"
+                      title="Hapus bagian"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
+              </div>
+              <textarea
+                value={s.body}
+                onChange={(e) => updateSection(idx, "body", e.target.value)}
+                disabled={seedOnly}
+                rows={3}
+                placeholder="Isi materi bagian ini..."
+                className="w-full bg-void border border-line rounded-md px-3 py-2 text-sm disabled:opacity-60"
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {error && <p className="text-danger text-sm">{error}</p>}
+      {savedAt && !error && (
+        <p className="text-success text-sm">Materi tersimpan — langsung dipakai game.</p>
+      )}
+
+      {!seedOnly && (
+        <div className="flex gap-2">
+          {room.custom && (
+            <button
+              type="button"
+              onClick={handleReset}
+              disabled={resetting}
+              className="border border-line rounded-md py-2 px-4 text-parchment/70 disabled:opacity-50"
+            >
+              {resetting ? "Mengembalikan..." : "Kembalikan ke Bawaan"}
+            </button>
+          )}
+          <button
+            disabled={saving}
+            className="flex-1 bg-shield disabled:opacity-50 text-void font-display font-bold rounded-md py-2"
+          >
+            {saving ? "Menyimpan..." : "Simpan Materi"}
+          </button>
+        </div>
+      )}
+    </form>
+  );
+}
+
+function MateriRuangSection({ token, rooms, seedOnly, loading, error, onRefresh }) {
+  const [activeKey, setActiveKey] = useState("bimbingan");
+  const activeRoom = rooms.find((r) => r.key === activeKey);
+
+  async function handleSave(roomKey, form) {
+    await api(`/api/admin/room-materials/${roomKey}`, token, {
+      method: "PUT",
+      body: JSON.stringify(form),
+    });
+    onRefresh();
+  }
+
+  async function handleReset(roomKey) {
+    await api(`/api/admin/room-materials/${roomKey}`, token, { method: "DELETE" });
+    onRefresh();
+  }
+
+  return (
+    <div>
+      <SectionHeader
+        title="Materi Ruang"
+        subtitle="Materi literasi yang dibaca pemain saat gagal level dan masuk ruang bertema."
+      />
+
+      {seedOnly && <SeedOnlyBanner />}
+      {error && <p className="text-danger text-sm mb-3">{error}</p>}
+      {loading && <p className="text-parchment/50 text-sm">Memuat...</p>}
+
+      <div className="flex gap-2 mb-4">
+        {rooms.map((r) => {
+          const a = ROOM_ACCENTS[r.key];
+          return (
+            <button
+              key={r.key}
+              onClick={() => setActiveKey(r.key)}
+              className={`px-4 py-2 rounded-md font-display flex items-center gap-2 border ${
+                activeKey === r.key
+                  ? `${a.border} bg-panel ${a.text} font-bold`
+                  : "border-line bg-panel text-parchment/60"
+              }`}
+            >
+              <span>{a.icon}</span>
+              {r.name}
+              {r.custom && <span className="w-1.5 h-1.5 rounded-full bg-gold" title="Kustom" />}
+            </button>
+          );
+        })}
+      </div>
+
+      {activeRoom && (
+        <RoomMaterialForm
+          key={activeRoom.key}
+          room={activeRoom}
+          seedOnly={seedOnly}
+          onSave={handleSave}
+          onReset={handleReset}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Ringkasan                                                            */
+/* ------------------------------------------------------------------ */
+
+function OverviewSection({ challengeRows, rooms, seedOnly, onNavigate }) {
+  const totalSoal = challengeRows.length;
+  const customRooms = rooms.filter((r) => r.custom).length;
+
+  return (
+    <div>
+      <SectionHeader
+        title="Ringkasan"
+        subtitle="Kondisi konten edukasi yang sedang dipakai game."
+      />
+
+      {seedOnly && <SeedOnlyBanner />}
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+        <StatCard
+          label="Total Soal"
+          value={totalSoal}
+          sub={seedOnly ? "soal bawaan (read-only)" : "soal di Supabase"}
+          accent="text-gold"
+        />
+        {LEVELS.map((l) => {
+          const count = challengeRows.filter((r) => r.level === l).length;
+          const target = LEVEL_TARGETS[l];
+          const short = count > 0 && count < target;
+          return (
+            <StatCard
+              key={l}
+              label={`Soal Level ${l}`}
+              value={count}
+              sub={
+                count === 0
+                  ? `target ${target} soal — masih kosong`
+                  : short
+                  ? `target ${target} — soal akan diputar ulang`
+                  : `target ${target} soal ✓`
+              }
+              accent={LEVEL_ACCENTS[l].text}
+            />
+          );
+        })}
+      </div>
+
+      <h3 className="font-display text-lg font-bold mb-3">Materi Ruang Kegagalan</h3>
+      <div className="grid md:grid-cols-3 gap-3 mb-6">
+        {rooms.map((r) => {
+          const a = ROOM_ACCENTS[r.key];
+          return (
+            <button
+              key={r.key}
+              onClick={() => onNavigate("rooms")}
+              className={`text-left bg-panel border ${a.border} rounded-xl p-4 hover:brightness-110 transition`}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <p className={`font-display font-bold ${a.text}`}>
+                  {a.icon} {r.name}
+                </p>
+                {r.custom ? <Badge tone="gold">Kustom</Badge> : <Badge>Bawaan</Badge>}
+              </div>
+              <p className="text-sm text-parchment/70 line-clamp-2">{r.title}</p>
+              <p className="text-xs text-parchment/40 mt-2">
+                {r.sections?.length ?? 0} bagian materi · pembicara: {r.speaker}
+              </p>
+            </button>
+          );
+        })}
+        {rooms.length === 0 && (
+          <p className="text-parchment/40 text-sm md:col-span-3">Memuat materi ruang...</p>
+        )}
+      </div>
+
+      <div className="bg-panel border border-line rounded-xl p-4 text-sm text-parchment/60">
+        <p className="font-display font-bold text-parchment mb-1">Cara kerja konten</p>
+        <p>
+          Soal dan materi ruang bawaan sudah tertanam di server. Begitu kamu menyimpan versi
+          sendiri lewat dashboard ini, versi itu langsung menggantikan yang bawaan di game —
+          tanpa restart. "Kembalikan ke Bawaan" menghapus versi kustom sebuah ruang.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Kerangka dashboard: sidebar + konten                                 */
+/* ------------------------------------------------------------------ */
+
+const NAV_ITEMS = [
+  { id: "overview", label: "Ringkasan", icon: "📊" },
+  { id: "challenges", label: "Bank Soal", icon: "📝" },
+  { id: "rooms", label: "Materi Ruang", icon: "🚪" },
+];
+
+function AdminDashboard({ token, onLogout }) {
+  const [section, setSection] = useState("overview");
+
+  // Data soal
+  const [challengeRows, setChallengeRows] = useState([]);
+  const [challengeSeedOnly, setChallengeSeedOnly] = useState(false);
+  const [challengeLoading, setChallengeLoading] = useState(true);
+  const [challengeError, setChallengeError] = useState("");
+
+  // Data materi ruang
+  const [rooms, setRooms] = useState([]);
+  const [roomSeedOnly, setRoomSeedOnly] = useState(false);
+  const [roomLoading, setRoomLoading] = useState(true);
+  const [roomError, setRoomError] = useState("");
+
+  async function refreshChallenges() {
+    setChallengeLoading(true);
+    setChallengeError("");
+    try {
+      const data = await api("/api/admin/challenges", token);
+      setChallengeRows(data.rows || []);
+      setChallengeSeedOnly(!!data.seedOnly);
+    } catch (err) {
+      setChallengeError(err.message);
+    } finally {
+      setChallengeLoading(false);
+    }
+  }
+
+  async function refreshRooms() {
+    setRoomLoading(true);
+    setRoomError("");
+    try {
+      const data = await api("/api/admin/room-materials", token);
+      setRooms(data.rooms || []);
+      setRoomSeedOnly(!!data.seedOnly);
+    } catch (err) {
+      setRoomError(err.message);
+    } finally {
+      setRoomLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    refreshChallenges();
+    refreshRooms();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const seedOnly = challengeSeedOnly || roomSeedOnly;
+
+  return (
+    <div className="min-h-screen flex flex-col md:flex-row">
+      {/* Sidebar */}
+      <aside className="md:w-60 shrink-0 bg-panel/70 border-b md:border-b-0 md:border-r border-line md:min-h-screen flex md:flex-col">
+        <div className="hidden md:flex items-center gap-2 px-5 py-5 border-b border-line">
+          <span className="w-9 h-9 rounded-lg bg-shield/15 border border-shield flex items-center justify-center">
+            🛡️
+          </span>
+          <div>
+            <p className="font-display text-xl font-bold leading-tight">SHIELD</p>
+            <p className="text-parchment/40 text-[11px] uppercase tracking-wider">Admin Panel</p>
+          </div>
+        </div>
+
+        <nav className="flex md:flex-col flex-1 md:px-3 md:py-4 gap-1 overflow-x-auto">
+          {NAV_ITEMS.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => setSection(item.id)}
+              className={`flex items-center gap-3 px-4 md:px-3 py-3 md:py-2.5 rounded-md text-sm whitespace-nowrap ${
+                section === item.id
+                  ? "bg-shield/15 text-shield border border-shield/40 font-bold"
+                  : "text-parchment/60 hover:text-parchment hover:bg-void/40 border border-transparent"
+              }`}
+            >
+              <span>{item.icon}</span>
+              <span className="font-display text-base">{item.label}</span>
+            </button>
+          ))}
+        </nav>
+
+        <div className="md:px-3 md:pb-4 px-2 py-2 md:py-0 flex md:block items-center">
+          <div className="hidden md:flex items-center gap-2 px-3 pb-3">
+            <span
+              className={`w-2 h-2 rounded-full ${seedOnly ? "bg-alert" : "bg-success"}`}
+            />
+            <span className="text-[11px] text-parchment/45">
+              {seedOnly ? "Mode read-only (seed)" : "Terhubung ke Supabase"}
+            </span>
+          </div>
+          <button
+            onClick={() => {
+              localStorage.removeItem(TOKEN_STORAGE_KEY);
+              onLogout();
+            }}
+            className="w-full text-left px-3 py-2 rounded-md text-sm text-parchment/50 hover:text-danger hover:bg-void/40"
+          >
+            ⏻ Keluar
+          </button>
+        </div>
+      </aside>
+
+      {/* Konten utama */}
+      <main className="flex-1 min-w-0 p-4 sm:p-6 lg:p-8 max-w-5xl">
+        {section === "overview" && (
+          <OverviewSection
+            challengeRows={challengeRows}
+            rooms={rooms}
+            seedOnly={seedOnly}
+            onNavigate={setSection}
+          />
+        )}
+        {section === "challenges" && (
+          <BankSoalSection
+            token={token}
+            rows={challengeRows}
+            seedOnly={challengeSeedOnly}
+            loading={challengeLoading}
+            error={challengeError}
+            onRefresh={refreshChallenges}
+          />
+        )}
+        {section === "rooms" && (
+          <MateriRuangSection
+            token={token}
+            rooms={rooms}
+            seedOnly={roomSeedOnly}
+            loading={roomLoading}
+            error={roomError}
+            onRefresh={refreshRooms}
+          />
+        )}
+      </main>
     </div>
   );
 }

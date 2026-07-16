@@ -9,7 +9,10 @@ import {
   addPlayer,
   removePlayer,
   getRoom,
+  deleteRoom,
   findRoomBySocket,
+  rebindPlayer,
+  resumeStateFor,
   setReady,
   allReady,
   startGame,
@@ -34,10 +37,23 @@ import {
   adminDeleteChallenge,
   adminSeedDefaults,
 } from "./game/challenges.js";
+import {
+  loadRoomMaterialsFromDB,
+  getPublicRoomMaterials,
+  adminListRoomMaterials,
+  adminUpdateRoomMaterial,
+  adminResetRoomMaterial,
+} from "./game/roomMaterials.js";
 import { supabase } from "./lib/supabaseClient.js";
 
 const PORT = process.env.PORT || 4000;
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || null;
+
+// Berapa lama slot pemain yang disconnect di tengah game ditahan sebelum
+// dianggap keluar beneran — cukup buat refresh browser / wifi kedip.
+const RESUME_GRACE_MS = 30 * 1000;
+// playerKey -> timer DNF yang tertunda (dibatalkan kalau pemain resume).
+const disconnectGrace = new Map();
 
 // CLIENT_ORIGIN controls CORS/Socket.IO allowed origins:
 //   - "*" or unset  -> reflect ANY origin (handy for LAN phone testing where
@@ -122,16 +138,41 @@ async function persistResults(room) {
     // We must inspect it explicitly, otherwise failures vanish silently and
     // the global leaderboard stays empty with no clue why.
     const { error } = await supabase.from("game_results").insert(rows);
-    if (error) {
-      console.error("[SHIELD] Insert game_results gagal:", error.message);
+    if (!error) return;
+
+    // Tabel di DB dibuat oleh schema versi lama (belum punya kolom nyawa).
+    // Jangan buang seluruh hasil sesi hanya karena kolom statistik hilang —
+    // coba ulang tanpa kolom itu supaya skor tetap masuk leaderboard, dan
+    // beri instruksi perbaikan permanennya.
+    if (/lives_(lost|remaining)/.test(error.message)) {
+      console.error(
+        "[SHIELD] Kolom nyawa belum ada di Supabase — jalankan ulang " +
+          "backend/supabase/schema.sql di SQL Editor. Menyimpan hasil TANPA " +
+          "kolom nyawa dulu supaya skor tidak hilang."
+      );
+      const slim = rows.map(({ lives_remaining, lives_lost, ...rest }) => rest);
+      const { error: retryErr } = await supabase.from("game_results").insert(slim);
+      if (retryErr) {
+        console.error("[SHIELD] Insert game_results (fallback) gagal:", retryErr.message);
+      }
+      return;
     }
+
+    console.error("[SHIELD] Insert game_results gagal:", error.message);
   } catch (err) {
     console.error("[SHIELD] Insert game_results error:", err.message);
   }
 }
 
 async function endGame(room) {
+  // Guard against double-ending (e.g. the server timeout firing at the same
+  // moment the last player finishes, or several clients reporting time-up).
+  if (room.status === "finished") return;
   room.status = "finished";
+  if (room.endTimer) {
+    clearTimeout(room.endTimer);
+    room.endTimer = null;
+  }
   const leaderboard = buildLeaderboard(room);
   // Persist FIRST, then tell clients — otherwise the client renders the
   // global leaderboard and fetches from Supabase before this session's rows
@@ -139,6 +180,10 @@ async function endGame(room) {
   await persistResults(room);
   io.to(room.code).emit("game_over", { leaderboard });
   snapshotRoom(room);
+  // Free the room after a grace period. Finished rooms otherwise pile up in
+  // memory forever on a long-running server (each session with a class of
+  // students leaks another room object).
+  setTimeout(() => deleteRoom(room.code), 60 * 1000);
 }
 
 // ---------------------------------------------------------------------
@@ -210,11 +255,52 @@ app.post("/api/admin/challenges/seed", requireAdmin, async (_req, res) => {
   }
 });
 
+// Materi ruang kegagalan (Ruang Bimbingan / Rumah Sakit / Penjara).
+// Endpoint publik dibaca GuidanceRoom di frontend saat pemain gagal level;
+// endpoint admin dipakai tab "Materi Ruang" di /admin.
+app.get("/api/room-materials", (_req, res) => {
+  res.json({ rooms: getPublicRoomMaterials() });
+});
+
+app.get("/api/admin/room-materials", requireAdmin, async (_req, res) => {
+  try {
+    const result = await adminListRoomMaterials();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put("/api/admin/room-materials/:roomKey", requireAdmin, async (req, res) => {
+  try {
+    const room = await adminUpdateRoomMaterial(req.params.roomKey, req.body);
+    res.json({ ok: true, room });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete("/api/admin/room-materials/:roomKey", requireAdmin, async (req, res) => {
+  try {
+    const room = await adminResetRoomMaterial(req.params.roomKey);
+    res.json({ ok: true, room });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 io.on("connection", (socket) => {
   socket.on("create_room", ({ name, character }, cb) => {
     const room = createRoom(socket.id, { name, character });
     socket.join(room.code);
-    cb?.({ ok: true, code: room.code, players: publicPlayers(room) });
+    // playerKey = rahasia per-pemain untuk resume setelah refresh (disimpan
+    // klien di sessionStorage, tidak pernah disiarkan ke pemain lain).
+    cb?.({
+      ok: true,
+      code: room.code,
+      players: publicPlayers(room),
+      playerKey: room.players.get(socket.id)?.key,
+    });
     io.to(room.code).emit("lobby_update", { players: publicPlayers(room) });
     snapshotRoom(room);
   });
@@ -223,9 +309,52 @@ io.on("connection", (socket) => {
     const result = addPlayer(code, socket.id, { name, character });
     if (result.error) return cb?.({ ok: false, error: result.error });
     socket.join(code);
-    cb?.({ ok: true, code, players: publicPlayers(result.room) });
+    cb?.({
+      ok: true,
+      code,
+      players: publicPlayers(result.room),
+      playerKey: result.room.players.get(socket.id)?.key,
+    });
     io.to(code).emit("lobby_update", { players: publicPlayers(result.room) });
     snapshotRoom(result.room);
+  });
+
+  // RESUME setelah refresh: klien menyimpan { code, playerKey } di
+  // sessionStorage; socket baru hasil refresh dipetakan kembali ke state
+  // pemain lama yang masih hidup di memori server (grace period di handler
+  // disconnect di bawah menahan slotnya agar tidak langsung di-DNF-kan).
+  socket.on("resume_game", ({ code, playerKey }, cb) => {
+    const room = getRoom(code);
+    if (!room || room.status !== "running") {
+      return cb?.({ ok: false, error: "ROOM_GONE" });
+    }
+    const rebound = rebindPlayer(room, playerKey, socket.id);
+    if (!rebound) return cb?.({ ok: false, error: "PLAYER_NOT_FOUND" });
+
+    // Batalkan timer grace period yang menunggu pemain ini kembali.
+    const timer = disconnectGrace.get(playerKey);
+    if (timer) {
+      clearTimeout(timer);
+      disconnectGrace.delete(playerKey);
+    }
+
+    socket.join(code);
+    cb?.({
+      ok: true,
+      code,
+      me: resumeStateFor(room, rebound.player),
+      players: publicPlayers(room),
+    });
+    // Beritahu klien lain: sprite lama (id socket lama) diganti id baru.
+    socket.to(code).emit("player_rebound", {
+      oldId: rebound.oldId,
+      id: socket.id,
+      name: rebound.player.name,
+      character: rebound.player.character,
+      x: rebound.player.x,
+      y: rebound.player.y,
+    });
+    snapshotRoom(room);
   });
 
   socket.on("set_ready", ({ code, ready }) => {
@@ -235,6 +364,11 @@ io.on("connection", (socket) => {
 
     if (allReady(room) && room.players.size >= 1 && room.status === "lobby") {
       startGame(room);
+      // Authoritative game-over timer. Previously the game only ended when a
+      // CLIENT noticed time was up and told us — but phones aggressively
+      // throttle JS timers in backgrounded tabs, so a room full of phones
+      // could hang past the time limit forever.
+      room.endTimer = setTimeout(() => endGame(room), timeLeftMs(room) + 1000);
       io.to(code).emit("game_start", {
         players: publicPlayers(room),
         durationMs: timeLeftMs(room),
@@ -259,9 +393,15 @@ io.on("connection", (socket) => {
   });
 
   socket.on("player_move", ({ code, x, y }) => {
-    const room = updatePosition(code, socket.id, x, y);
-    if (!room) return;
-    socket.to(code).emit("player_moved", { id: socket.id, x, y });
+    // Sanitize: non-finite or off-map coordinates (buggy client, or someone
+    // poking devtools) would otherwise be broadcast verbatim and break every
+    // OTHER player's rendering too.
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    const cx = Math.min(1600, Math.max(0, x));
+    const cy = Math.min(1200, Math.max(0, y));
+    const room = updatePosition(code, socket.id, cx, cy);
+    if (!room || room.status !== "running") return;
+    socket.to(code).emit("player_moved", { id: socket.id, x: cx, y: cy });
     // Deliberately NOT snapshotted here — position updates fire many
     // times per second and would flood Supabase for no real benefit.
   });
@@ -269,7 +409,9 @@ io.on("connection", (socket) => {
   socket.on("request_challenge", ({ code }, cb) => {
     const room = getRoom(code);
     const player = room?.players.get(socket.id);
-    if (!room || !player) return cb?.({ ok: false });
+    if (!room || !player || player.finished || room.status !== "running") {
+      return cb?.({ ok: false });
+    }
     const challenge = getChallenge(player.level, player.questionIndex);
     if (!challenge) return cb?.({ ok: false });
 
@@ -305,6 +447,11 @@ io.on("connection", (socket) => {
     }
 
     const correct = !!challenge.options[optionIdx]?.correct;
+    // applyAnswer returns null for a finished player (e.g. a duplicate
+    // submit racing the first) — destructuring null would throw and kill
+    // the socket handler, so bail out cleanly instead.
+    const applied = applyAnswer(room, socket.id, correct);
+    if (!applied) return cb?.({ ok: false });
     const {
       player: updated,
       result,
@@ -315,7 +462,7 @@ io.on("connection", (socket) => {
       repeatLevel,
       wrongCount,
       livesRemaining,
-    } = applyAnswer(room, socket.id, correct);
+    } = applied;
 
     cb?.({
       ok: true,
@@ -369,15 +516,33 @@ io.on("connection", (socket) => {
         snapshotRoom(updated);
       }
     } else if (room.status === "running") {
-      markDisconnectedAsFinished(room, socket.id);
-      io.to(room.code).emit("player_progress", { id: socket.id, finished: true, disconnected: true });
-      snapshotRoom(room);
-      if (allFinished(room)) endGame(room);
+      // GRACE PERIOD: refresh browser = disconnect + connect baru beberapa
+      // detik kemudian. Jangan langsung DNF-kan pemainnya — tunggu dulu;
+      // kalau resume_game datang membawa playerKey yang cocok, timer ini
+      // dibatalkan dan pemain lanjut main. Baru kalau tidak kembali dalam
+      // RESUME_GRACE_MS dia dianggap benar-benar keluar.
+      const p = room.players.get(socket.id);
+      if (!p || p.finished) return;
+      const key = p.key;
+      const code = room.code;
+      const staleId = socket.id;
+      const timer = setTimeout(() => {
+        disconnectGrace.delete(key);
+        const r = getRoom(code);
+        // Hanya DNF-kan kalau slotnya masih terikat ke socket lama (belum
+        // di-rebind oleh resume) dan game masih berjalan.
+        if (!r || r.status !== "running" || !r.players.has(staleId)) return;
+        markDisconnectedAsFinished(r, staleId);
+        io.to(code).emit("player_progress", { id: staleId, finished: true, disconnected: true });
+        snapshotRoom(r);
+        if (allFinished(r)) endGame(r);
+      }, RESUME_GRACE_MS);
+      disconnectGrace.set(key, timer);
     }
   });
 });
 
-loadChallengesFromDB().finally(() => {
+Promise.allSettled([loadChallengesFromDB(), loadRoomMaterialsFromDB()]).finally(() => {
   server.listen(PORT, () => {
     console.log(`SHIELD backend listening on :${PORT}`);
   });

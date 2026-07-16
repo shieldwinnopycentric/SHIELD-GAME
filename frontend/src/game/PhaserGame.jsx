@@ -6,6 +6,17 @@ export default function PhaserGame({ socket, roomCode, player, initialRoster, cu
   const containerRef = useRef(null);
   const gameRef = useRef(null);
 
+  // The scene is created ONCE, but onNearNpc is a fresh closure every React
+  // render (it captures challenge/transition/roomView state). If we handed
+  // the first render's closure straight to the scene, its guards would see
+  // stale `null` state forever — letting a new challenge request fire while
+  // the benar/salah result was still on screen (wiping it). Route the call
+  // through a ref so the scene always invokes the LATEST handler.
+  const onNearNpcRef = useRef(onNearNpc);
+  useEffect(() => {
+    onNearNpcRef.current = onNearNpc;
+  }, [onNearNpc]);
+
   useEffect(() => {
     if (gameRef.current) return;
 
@@ -14,6 +25,17 @@ export default function PhaserGame({ socket, roomCode, player, initialRoster, cu
       parent: containerRef.current,
       backgroundColor: "#0e1512",
       physics: { default: "arcade", arcade: { debug: false } },
+      // Mobile perf: render at CSS-pixel resolution (not the phone's 2-3x
+      // devicePixelRatio), skip antialiasing on the pixel-art sprites, and
+      // ask for the high-performance GPU context. Together these are the
+      // difference between a phone pushing ~1M pixels/frame vs ~9M.
+      render: {
+        antialias: false,
+        pixelArt: false,
+        roundPixels: true,
+        powerPreference: "high-performance",
+      },
+      resolution: 1,
       // RESIZE: the canvas fills its parent at 1:1 (no letterboxing), and the
       // camera viewport becomes the parent's size — so on a tall phone frame
       // the game uses the WHOLE frame instead of a small letterboxed strip.
@@ -34,7 +56,7 @@ export default function PhaserGame({ socket, roomCode, player, initialRoster, cu
       player,
       initialRoster,
       currentLevel,
-      onNearNpc,
+      onNearNpc: (level) => onNearNpcRef.current?.(level),
     });
 
     return () => {

@@ -5,7 +5,7 @@ import PageBackground from "../components/PageBackground.jsx";
 
 const CHAR_LABELS = { nexus: "Nexus", cypher: "Cypher", helix: "Helix" };
 
-export default function Lobby({ player, roomCode, setRoomCode, onGameStart, onBack }) {
+export default function Lobby({ player, roomCode, setRoomCode, setPlayerKey, onGameStart, onBack }) {
   const [joinCode, setJoinCode] = useState("");
   const [players, setPlayers] = useState([]);
   const [ready, setReady] = useState(false);
@@ -39,6 +39,7 @@ export default function Lobby({ player, roomCode, setRoomCode, onGameStart, onBa
     socket.emit("create_room", player, (res) => {
       if (!res.ok) return setError("Gagal membuat room.");
       setRoomCode(res.code);
+      setPlayerKey?.(res.playerKey); // kunci resume-setelah-refresh
       setPlayers(res.players);
       setMode("in-room");
     });
@@ -49,6 +50,7 @@ export default function Lobby({ player, roomCode, setRoomCode, onGameStart, onBa
     socket.emit("join_room", { code: joinCode.trim().toUpperCase(), ...player }, (res) => {
       if (!res.ok) return setError(errorMessage(res.error));
       setRoomCode(res.code);
+      setPlayerKey?.(res.playerKey); // kunci resume-setelah-refresh
       setPlayers(res.players);
       setMode("in-room");
       setError("");

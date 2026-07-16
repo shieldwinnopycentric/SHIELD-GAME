@@ -11,19 +11,48 @@ import { useEffect, useRef, useState } from "react";
 // Sprite karakter yang sudah ada dipakai sebagai "avatar 2D" pembicara. Ganti
 // path di sini kalau nanti ada aset khusus (konselor/dokter/petugas).
 const CHARACTER_SPRITE = {
-  nexus: "/assets/character-nexus.png",
+  konselor: "/assets/konselor.png",
   cypher: "/assets/character-cypher.png",
-  helix: "/assets/character-helix.png",
+  sipir: "/assets/sipir.png",
 };
 
-// Materi & tema per ruang. Ruang Bimbingan memakai sambutan yang diminta
-// persis; Rumah Sakit & Penjara memakai pesan tema senada.
-const ROOM_CONTENT = {
+// Resolusi URL backend mengikuti pola lib/socket.js: hormati VITE_SERVER_URL
+// kalau menunjuk host remote, selain itu ikut host halaman (supaya tetap
+// jalan saat dibuka dari HP lewat LAN).
+const envUrl = import.meta.env.VITE_SERVER_URL;
+const isLocalEnv = !envUrl || /localhost|127\.0\.0\.1/.test(envUrl);
+const SERVER_URL = isLocalEnv
+  ? `${window.location.protocol}//${window.location.hostname}:4000`
+  : envUrl;
+
+// Tema visual per ruang (warna/gambar) — tetap di frontend karena bukan
+// konten edukasi. KONTEN (pembicara, sapaan, judul, bagian materi) datang
+// dari backend (/api/room-materials, dikelola lewat /admin); DEFAULT_CONTENT
+// di bawah adalah fallback bila fetch gagal/belum selesai.
+const ROOM_THEME = {
   "Ruang Bimbingan": {
     accentBorder: "border-primary",
     accentText: "text-primary",
     glow: "rgba(4,156,216,0.16)",
     bg: "/assets/bg-bimbingan.jpg",
+    
+  },
+  "Rumah Sakit": {
+    accentBorder: "border-danger",
+    accentText: "text-danger",
+    glow: "rgba(229,37,33,0.16)",
+    bg: "/assets/bg-rumah-sakit.jpg",
+  },
+  Penjara: {
+    accentBorder: "border-gold",
+    accentText: "text-gold",
+    glow: "rgba(251,208,0,0.14)",
+    bg: "/assets/bg-penjara.jpg",
+  },
+};
+
+const DEFAULT_CONTENT = {
+  "Ruang Bimbingan": {
     speaker: "Konselor",
     greeting:
       "Selamat datang di Ruang Bimbingan. Mohon untuk melakukan literasi sebanyak-banyaknya terkait aksi penyalahgunaan inhalan.",
@@ -52,10 +81,6 @@ const ROOM_CONTENT = {
     ],
   },
   "Rumah Sakit": {
-    accentBorder: "border-danger",
-    accentText: "text-danger",
-    glow: "rgba(229,37,33,0.16)",
-    bg: "/assets/bg-rumah-sakit.jpg",
     speaker: "Dokter",
     greeting:
       "Kamu dirawat di Rumah Sakit karena menyerah pada tekanan. Sebelum kembali, pahami dulu apa yang sebenarnya terjadi pada tubuhmu.",
@@ -84,10 +109,6 @@ const ROOM_CONTENT = {
     ],
   },
   Penjara: {
-    accentBorder: "border-gold",
-    accentText: "text-gold",
-    glow: "rgba(251,208,0,0.14)",
-    bg: "/assets/bg-penjara.jpg",
     speaker: "Petugas",
     greeting:
       "Kamu berakhir di Penjara karena termakan misinformasi yang menyeretmu pada penyalahgunaan. Renungkan konsekuensinya sebelum mencoba lagi.",
@@ -119,10 +140,51 @@ const ROOM_CONTENT = {
 
 const MIN_READ_SECONDS = 6; // waktu baca minimal sebelum tombol bisa aktif
 
+// Cache modul: materi dari server cukup diambil sekali per sesi tab, supaya
+// pemain yang gagal berkali-kali tidak menunggu fetch ulang tiap masuk ruang.
+let cachedMaterials = null;
+let materialsPromise = null;
+function fetchRoomMaterials() {
+  if (cachedMaterials) return Promise.resolve(cachedMaterials);
+  if (!materialsPromise) {
+    materialsPromise = fetch(`${SERVER_URL}/api/room-materials`)
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+      .then((data) => {
+        cachedMaterials = data.rooms || {};
+        return cachedMaterials;
+      })
+      .catch(() => {
+        // Gagal ambil dari server (offline/belum jalan) — pakai konten bawaan
+        // saja, dan biarkan percobaan berikutnya mencoba fetch lagi.
+        materialsPromise = null;
+        return null;
+      });
+  }
+  return materialsPromise;
+}
+
 export default function GuidanceRoom({ info, onBackToGame }) {
   const room = info?.failRoom || "Ruang Bimbingan";
-  const content = ROOM_CONTENT[room] || ROOM_CONTENT["Ruang Bimbingan"];
-  const avatar = CHARACTER_SPRITE[info?.character] || CHARACTER_SPRITE.nexus;
+  const theme = ROOM_THEME[room] || ROOM_THEME["Ruang Bimbingan"];
+  const avatar = CHARACTER_SPRITE[info?.character] || CHARACTER_SPRITE.konselor;
+
+  // Mulai dari konten bawaan, ganti dengan versi server (hasil kelola admin)
+  // begitu tersedia. Kalau server tidak menjawab, bawaan tetap tampil.
+  const [serverMaterials, setServerMaterials] = useState(cachedMaterials);
+  useEffect(() => {
+    let alive = true;
+    fetchRoomMaterials().then((rooms) => {
+      if (alive && rooms) setServerMaterials(rooms);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const content =
+    (serverMaterials && serverMaterials[room]) ||
+    DEFAULT_CONTENT[room] ||
+    DEFAULT_CONTENT["Ruang Bimbingan"];
 
   const scrollRef = useRef(null);
   const [reachedEnd, setReachedEnd] = useState(false);
@@ -137,10 +199,11 @@ export default function GuidanceRoom({ info, onBackToGame }) {
 
   // Kalau materi ternyata tidak bisa digulir (muat penuh di layar besar),
   // anggap sudah "sampai bawah" supaya tombol tidak terkunci selamanya.
+  // Dicek ulang saat konten berubah (materi dari server datang setelah mount).
   useEffect(() => {
     const el = scrollRef.current;
     if (el && el.scrollHeight <= el.clientHeight + 4) setReachedEnd(true);
-  }, []);
+  }, [content]);
 
   function handleScroll(e) {
     const el = e.currentTarget;
@@ -162,17 +225,17 @@ export default function GuidanceRoom({ info, onBackToGame }) {
         // terbaca) + glow aksen per ruang. Kalau file gambar belum ada, warna
         // dasar #0b1016 tetap tampil (fallback aman).
         backgroundColor: "#0b1016",
-        backgroundImage: `radial-gradient(circle at 50% -10%, ${content.glow}, transparent 60%), linear-gradient(rgba(11,16,22,0.55), rgba(11,16,22,0.82)), url(${content.bg})`,
+        backgroundImage: `radial-gradient(circle at 50% -10%, ${theme.glow}, transparent 60%), linear-gradient(rgba(11,16,22,0.55), rgba(11,16,22,0.82)), url(${theme.bg})`,
         backgroundSize: "cover",
         backgroundPosition: "center",
       }}
     >
       <div
-        className={`bg-panel/85 backdrop-blur-md border-2 ${content.accentBorder} rounded-lg w-full max-w-2xl flex flex-col max-h-full pixel-card overflow-hidden`}
+        className={`bg-panel/85 backdrop-blur-md border-2 ${theme.accentBorder} rounded-lg w-full max-w-2xl flex flex-col max-h-full pixel-card overflow-hidden`}
       >
         {/* Header: nama ruang */}
         <div className="px-5 pt-5 pb-3 shrink-0">
-          <p className={`font-pixel ${content.accentText} text-[11px] tracking-[0.12em] uppercase`}>
+          <p className={`font-pixel ${theme.accentText} text-[11px] tracking-[0.12em] uppercase`}>
             {room}
           </p>
         </div>
@@ -206,7 +269,7 @@ export default function GuidanceRoom({ info, onBackToGame }) {
           <div className="space-y-4">
             {content.sections.map((s) => (
               <div key={s.heading}>
-                <p className={`font-display font-bold text-base mb-1 ${content.accentText}`}>
+                <p className={`font-display font-bold text-base mb-1 ${theme.accentText}`}>
                   {s.heading}
                 </p>
                 <p className="text-sm text-parchment/80 leading-relaxed">{s.body}</p>

@@ -13,6 +13,11 @@ export async function fetchGlobalLeaderboard(limit = 10) {
   const { data, error } = await supabase
     .from("global_leaderboard")
     .select("*")
+    // Urutkan eksplisit di query: ORDER BY di dalam definisi view TIDAK
+    // dijamin dipertahankan PostgREST, jadi tanpa ini urutan ranking bisa
+    // acak — skor tertinggi wajib selalu di atas.
+    .order("best_score", { ascending: false })
+    .order("best_time_ms", { ascending: true, nullsFirst: false })
     .limit(limit);
   if (error) {
     console.error("fetchGlobalLeaderboard error:", error.message);

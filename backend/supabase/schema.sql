@@ -35,8 +35,13 @@ alter table game_results drop constraint if exists game_results_character_check;
 alter table game_results add constraint game_results_character_check
   check (character in ('nexus', 'cypher', 'helix'));
 
--- Global leaderboard (top scores across all rooms/sessions)
-create or replace view global_leaderboard as
+-- Global leaderboard (top scores across all rooms/sessions).
+-- DROP dulu: `create or replace view` MENOLAK perubahan nama/urutan kolom
+-- pada view yang sudah ada (ERROR 42P16) — persis yang terjadi kalau view
+-- lama dibuat dengan susunan kolom berbeda. View tidak menyimpan data —
+-- cuma query tersimpan — jadi drop + create ulang selalu aman.
+drop view if exists global_leaderboard;
+create view global_leaderboard as
 select
   player_name,
   character,
@@ -50,6 +55,20 @@ group by player_name, character
 order by best_score desc, best_time_ms asc;
 
 alter table game_results enable row level security;
+
+-- REALTIME: siarkan INSERT di game_results ke klien (dipakai
+-- GlobalLeaderboard.jsx untuk refresh ranking otomatis begitu ada sesi
+-- baru selesai, tanpa reload halaman). Idempoten: cek dulu apakah tabel
+-- sudah ada di publication supaya schema.sql aman dijalankan ulang.
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and tablename = 'game_results'
+  ) then
+    alter publication supabase_realtime add table game_results;
+  end if;
+end $$;
 
 -- Allow anyone to read leaderboard results (adjust for production auth needs).
 -- Postgres tidak punya "create policy if not exists", jadi drop dulu supaya
@@ -99,4 +118,4 @@ create table if not exists room_snapshots (
 );
 
 alter table room_snapshots enable row level security;
--- No public policies: service role key (backend) only.
+

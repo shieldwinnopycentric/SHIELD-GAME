@@ -9,20 +9,24 @@ import { confirmDialog } from "../lib/dialog.js";
 
 const GAME_DURATION_MS = 15 * 60 * 1000;
 
-export default function GameScreen({ player, roomCode, initialGameState, onGameOver, onExit }) {
-  const [level, setLevel] = useState(1);
+export default function GameScreen({ player, roomCode, playerKey, initialGameState, onGameOver, onExit }) {
+  // Saat masuk dari hasil RESUME (refresh di tengah game), initialGameState
+  // membawa snapshot progres dari server — pakai itu sebagai state awal
+  // supaya HUD/level tidak balik ke Level 1.
+  const resume = initialGameState?.resume;
+  const [level, setLevel] = useState(resume?.level ?? 1);
   const [questionNumber, setQuestionNumber] = useState(null);
   const [totalQuestions, setTotalQuestions] = useState(null);
-  const [wrongInLevel, setWrongInLevel] = useState(0);
+  const [wrongInLevel, setWrongInLevel] = useState(resume?.wrongInLevel ?? 0);
   const [maxWrong, setMaxWrong] = useState(1);
-  const [lives, setLives] = useState(2);
+  const [lives, setLives] = useState(resume?.lives ?? 2);
   const [maxLives, setMaxLives] = useState(2);
-  const [livesLost, setLivesLost] = useState(0);
-  const [score, setScore] = useState(0);
-  const [correctCount, setCorrectCount] = useState(0);
+  const [livesLost, setLivesLost] = useState(resume?.livesLost ?? 0);
+  const [score, setScore] = useState(resume?.score ?? 0);
+  const [correctCount, setCorrectCount] = useState(resume?.correctCount ?? 0);
   const [timeLeftMs, setTimeLeftMs] = useState(GAME_DURATION_MS);
-  const [finished, setFinished] = useState(false);
-  const [won, setWon] = useState(false); // satu-satunya cara "finished": menang di Level 3
+  const [finished, setFinished] = useState(!!resume?.finished);
+  const [won, setWon] = useState(!!resume?.won); // satu-satunya cara "finished": menang di Level 3
 
   const [challenge, setChallenge] = useState(null);
   const [resultState, setResultState] = useState(null);
@@ -30,27 +34,49 @@ export default function GameScreen({ player, roomCode, initialGameState, onGameO
   const [roomView, setRoomView] = useState(null); // halaman ruang kegagalan (failed)
 
   const startRef = useRef(Date.now());
+  const durationRef = useRef(GAME_DURATION_MS);
+  const timeUpSentRef = useRef(false);
+  const intentionalExitRef = useRef(false); // true saat pemain sendiri menekan Keluar
   const pendingLevelRef = useRef(null); // stashes level info while a per-question result is shown
 
   useEffect(() => {
     startRef.current = Date.now();
-    if (initialGameState?.durationMs) setTimeLeftMs(initialGameState.durationMs);
+    if (initialGameState?.durationMs) {
+      durationRef.current = initialGameState.durationMs;
+      setTimeLeftMs(initialGameState.durationMs);
+    }
 
     function onGameOverEvt({ leaderboard }) {
       onGameOver(leaderboard);
     }
     socket.on("game_over", onGameOverEvt);
 
+    // Mid-game connection drop (common on phones: wifi blip / screen lock).
+    // The server frees our slot on disconnect and a reconnect gets a NEW
+    // socket id the room doesn't know — so the session is unrecoverable.
+    // Tell the player instead of leaving them silently stuck on the map.
+    function onDisconnect() {
+      if (intentionalExitRef.current) return; // player chose "Keluar" — no alert
+      alert("Koneksi terputus — kamu keluar dari room. Silakan gabung room baru.");
+      onExit?.();
+    }
+    socket.on("disconnect", onDisconnect);
+
     const timer = setInterval(() => {
-      const left = GAME_DURATION_MS - (Date.now() - startRef.current);
+      // Count down from the duration the SERVER said is left at game_start —
+      // a player who joined late (or whose game_start was delayed) previously
+      // ran a full local 15:00 out of sync with everyone else's clock.
+      const left = Math.max(0, durationRef.current - (Date.now() - startRef.current));
       setTimeLeftMs(left);
-      if (left <= 0) {
+      if (left <= 0 && !timeUpSentRef.current) {
+        timeUpSentRef.current = true; // ping the server once, not every second
         socket.emit("leave_or_time_up_check", { code: roomCode });
       }
     }, 1000);
 
     return () => {
       socket.off("game_over", onGameOverEvt);
+      socket.off("disconnect", onDisconnect);
       clearInterval(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -196,6 +222,7 @@ export default function GameScreen({ player, roomCode, initialGameState, onGameO
       danger: true,
     });
     if (ok) {
+      intentionalExitRef.current = true;
       socket.disconnect();
       onExit?.();
     }

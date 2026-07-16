@@ -380,6 +380,9 @@ export default class MainScene extends Phaser.Scene {
     const smokeKey = this.textures.exists("smoke-puff") ? "smoke-puff" : null;
     if (!smokeKey) return;
 
+    // NORMAL blend + low spawn rate: additive blending over a full-map
+    // emitter is one of the most expensive things a low-end phone GPU can
+    // do, and it's the main reason the map stuttered on HP but not laptop.
     this.add.particles(0, 0, smokeKey, {
       x: { min: 0, max: MAP_W },
       y: { min: 0, max: MAP_H },
@@ -388,8 +391,7 @@ export default class MainScene extends Phaser.Scene {
       angle: { min: 0, max: 360 },
       scale: { start: 0.6, end: 1.6 },
       alpha: { start: 0.18, end: 0 },
-      frequency: 900,
-      blendMode: "ADD",
+      frequency: 1600,
       depth: 2,
     });
   }
@@ -472,13 +474,73 @@ export default class MainScene extends Phaser.Scene {
     this.cursors = this.input.keyboard.createCursorKeys();
     this.wasd = this.input.keyboard.addKeys("W,A,S,D");
     this.lastSent = 0;
+    this.lastSentPos = { x: startX, y: startY };
 
     this.setupJoystick();
+    this.setupResponsiveZoom();
 
-    this.socket.on("player_moved", ({ id, x, y }) => {
+    // Store the target position and lerp toward it in update() instead of
+    // teleporting the sprite on every packet — movement updates arrive at
+    // ~12 Hz, so hard setPosition made teammates stutter across the map.
+    this.onPlayerMoved = ({ id, x, y }) => {
       const entry = this.getOrCreateOther(id, x, y);
-      entry.sprite.setPosition(x, y);
-      entry.nameTag.setPosition(x, y - 24);
+      entry.target = { x, y };
+    };
+    this.socket.on("player_moved", this.onPlayerMoved);
+
+    // Remove the sprite of anyone who disconnects mid-game so they don't
+    // linger as a frozen "ghost" on everyone else's map.
+    this.onPlayerProgress = ({ id, disconnected }) => {
+      if (!disconnected) return;
+      const entry = this.otherPlayers.get(id);
+      if (entry) {
+        entry.sprite.destroy();
+        entry.nameTag.destroy();
+        this.otherPlayers.delete(id);
+      }
+    };
+    this.socket.on("player_progress", this.onPlayerProgress);
+
+    // Teammate refreshed their browser: their slot was rebound to a new
+    // socket id. Move their existing sprite over to the new id (or create
+    // one if we never had it) so they don't duplicate or freeze.
+    this.onPlayerRebound = ({ oldId, id, name, character, x, y }) => {
+      const old = this.otherPlayers.get(oldId);
+      if (old) {
+        this.otherPlayers.delete(oldId);
+        this.otherPlayers.set(id, old);
+        old.target = { x, y };
+      } else if (id !== this.socket.id) {
+        this.getOrCreateOther(id, x, y, character, name);
+      }
+    };
+    this.socket.on("player_rebound", this.onPlayerRebound);
+
+    // The socket is a module-level singleton that outlives this scene; if the
+    // listeners aren't removed, a rematch registers duplicates that call into
+    // a destroyed scene and crash/corrupt rendering.
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.socket.off("player_moved", this.onPlayerMoved);
+      this.socket.off("player_progress", this.onPlayerProgress);
+      this.socket.off("player_rebound", this.onPlayerRebound);
+    });
+  }
+
+  /** Keep the amount of visible world roughly constant across devices: a
+   * phone's ~390px-wide viewport otherwise shows a tiny, hugely-zoomed slice
+   * of the 1600x1200 map compared to a laptop, which is why the game looked
+   * completely different (and disorienting) on HP vs laptop. */
+  setupResponsiveZoom() {
+    const TARGET_VIEW_W = 800; // world pixels we want visible horizontally
+    const applyZoom = () => {
+      const w = this.scale.width || TARGET_VIEW_W;
+      const zoom = Phaser.Math.Clamp(w / TARGET_VIEW_W, 0.5, 1.3);
+      this.cameras.main.setZoom(zoom);
+    };
+    applyZoom();
+    this.scale.on("resize", applyZoom);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.scale.off("resize", applyZoom);
     });
   }
 
@@ -496,7 +558,7 @@ export default class MainScene extends Phaser.Scene {
       .setDepth(5);
     const nameTag = this.createNameTag(x ?? SPAWN.x, y ?? SPAWN.y, resolvedName);
 
-    const entry = { sprite, nameTag };
+    const entry = { sprite, nameTag, target: { x: x ?? SPAWN.x, y: y ?? SPAWN.y } };
     this.otherPlayers.set(id, entry);
     return entry;
   }
@@ -603,13 +665,24 @@ export default class MainScene extends Phaser.Scene {
     if (this.joyActive && (this.joyVec.x !== 0 || this.joyVec.y !== 0)) {
       vx = this.joyVec.x * speed;
       vy = this.joyVec.y * speed;
+    } else if (vx !== 0 && vy !== 0) {
+      // Normalize keyboard diagonals so moving diagonally isn't ~41% faster
+      // than straight (unfair between players spamming diagonals vs not).
+      vx *= Math.SQRT1_2;
+      vy *= Math.SQRT1_2;
     }
 
     this.self.setVelocity(vx, vy);
     this.nameTag.setPosition(this.self.x, this.self.y - 24);
 
+    // Hysteresis: the trigger zone is a 110x110 box (reaches ~70px+ from
+    // center), so the "player left" radius must be LARGER than the zone —
+    // not smaller. It used to be 60, which meant standing on the zone's edge
+    // counted as inside (overlap) and outside (this check) at the same time,
+    // re-triggering the NPC every frame and wiping the benar/salah result
+    // with a fresh question the instant you answered.
     const stillNear = this.npcZones.some(
-      (nz) => Phaser.Math.Distance.Between(this.self.x, this.self.y, nz.x, nz.y) < 60
+      (nz) => Phaser.Math.Distance.Between(this.self.x, this.self.y, nz.x, nz.y) < 95
     );
     if (!stillNear) {
       this.currentNpc = null;
@@ -620,8 +693,27 @@ export default class MainScene extends Phaser.Scene {
     }
 
     if (time - this.lastSent > 80) {
-      this.lastSent = time;
-      this.socket.emit("player_move", { code: this.roomCode, x: this.self.x, y: this.self.y });
+      const dx = this.self.x - this.lastSentPos.x;
+      const dy = this.self.y - this.lastSentPos.y;
+      // Only emit when we actually moved — with 10 players idling on the
+      // map, constant no-op packets are pure waste for phone radios and the
+      // server alike.
+      if (dx * dx + dy * dy > 1) {
+        this.lastSent = time;
+        this.lastSentPos = { x: this.self.x, y: this.self.y };
+        this.socket.emit("player_move", { code: this.roomCode, x: this.self.x, y: this.self.y });
+      }
     }
+
+    // Smoothly move teammates toward their latest known position instead of
+    // snapping (network updates arrive far less often than frames render).
+    this.otherPlayers.forEach((entry) => {
+      const { sprite, nameTag, target } = entry;
+      if (!target) return;
+      const nx = Phaser.Math.Linear(sprite.x, target.x, 0.25);
+      const ny = Phaser.Math.Linear(sprite.y, target.y, 0.25);
+      sprite.setPosition(nx, ny);
+      nameTag.setPosition(nx, ny - 24);
+    });
   }
 }

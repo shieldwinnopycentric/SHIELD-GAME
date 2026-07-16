@@ -53,6 +53,10 @@ export function addPlayer(code, socketId, player) {
 
   room.players.set(socketId, {
     id: socketId,
+    // Rahasia per-pemain untuk RESUME setelah refresh: socket id berubah
+    // tiap koneksi baru, jadi identitas pemain diikat ke key ini (disimpan
+    // di sessionStorage klien) dan socket baru di-rebind lewat rebindPlayer.
+    key: nanoid(12),
     name: player.name?.slice(0, 20) || "Pemain",
     character: normalizeCharacter(player.character),
     ready: false,
@@ -84,6 +88,12 @@ export function removePlayer(code, socketId) {
 
 export function getRoom(code) {
   return rooms.get(code) || null;
+}
+
+/** Drops a room from the in-memory store (used after a game finishes so
+ * completed rooms don't accumulate for the whole server lifetime). */
+export function deleteRoom(code) {
+  rooms.delete(code);
 }
 
 export function findRoomBySocket(socketId) {
@@ -127,6 +137,23 @@ export function updatePosition(code, socketId, x, y) {
   p.x = x;
   p.y = y;
   return room;
+}
+
+/** RESUME setelah refresh: cari pemain lewat session key rahasianya, lalu
+ * pindahkan entry map ke socket id yang baru. Socket id lama sudah mati
+ * (koneksi lamanya ditutup browser saat refresh). Mengembalikan
+ * { player, oldId } atau null kalau key tidak dikenal. */
+export function rebindPlayer(room, playerKey, newSocketId) {
+  if (!playerKey) return null;
+  for (const [oldId, p] of room.players) {
+    if (p.key !== playerKey) continue;
+    room.players.delete(oldId);
+    p.id = newSocketId;
+    p.disconnected = false;
+    room.players.set(newSocketId, p);
+    return { player: p, oldId };
+  }
+  return null;
 }
 
 /**
@@ -221,6 +248,25 @@ export function markDisconnectedAsFinished(room, socketId) {
   p.finished = true;
   p.finishTimeMs = room.startedAt ? Date.now() - room.startedAt : null;
   p.disconnected = true;
+}
+
+/** Snapshot lengkap state seorang pemain untuk dikirim ke kliennya saat
+ * RESUME — cukup untuk membangun ulang HUD & progres di GameScreen. */
+export function resumeStateFor(room, player) {
+  return {
+    level: player.level,
+    questionIndex: player.questionIndex,
+    wrongInLevel: player.wrongInLevel,
+    lives: player.lives,
+    livesLost: player.livesLost,
+    correctCount: player.correctCount,
+    score: player.score,
+    finished: player.finished,
+    won: player.won,
+    x: player.x,
+    y: player.y,
+    durationMs: timeLeftMs(room),
+  };
 }
 
 export function allFinished(room) {

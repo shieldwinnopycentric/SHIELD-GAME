@@ -26,10 +26,47 @@ export default function GlobalLeaderboard() {
       setLoading(false);
       return;
     }
-    fetchGlobalLeaderboard(10)
-      .then(setRows)
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
+
+    let cancelled = false;
+    const refresh = () =>
+      fetchGlobalLeaderboard(10)
+        .then((data) => {
+          if (cancelled) return;
+          setRows(data);
+          setError("");
+        })
+        .catch((err) => {
+          if (!cancelled) setError(err.message);
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+
+    refresh();
+
+    // REALTIME: refetch begitu ada hasil game baru masuk ke game_results —
+    // pemain yang selesai di room lain langsung muncul di ranking tanpa
+    // perlu refresh halaman. (Butuh tabel game_results masuk publication
+    // supabase_realtime — sudah ditambahkan di schema.sql.)
+    const channel = supabase
+      .channel("global-leaderboard")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "game_results" },
+        refresh
+      )
+      .subscribe();
+
+    // Fallback: kalau Realtime tidak aktif di project Supabase-nya (belum
+    // enable publication), polling tiap 15 detik tetap membuat papan skor
+    // ter-update untuk semua orang.
+    const poll = setInterval(refresh, 15000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(poll);
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   if (!supabase) {
