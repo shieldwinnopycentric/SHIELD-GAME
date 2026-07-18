@@ -11,11 +11,6 @@ function formatTime(ms) {
 
 const CHAR_LABELS = { nexus: "Nexus", cypher: "Cypher", helix: "Helix" };
 
-// All-time leaderboard across every past session (not just this room),
-// read from the `global_leaderboard` view in Supabase. Requires
-// VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY to be set in frontend/.env
-// AND SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY in backend/.env (so the
-// backend actually writes results after each game — see README).
 export default function GlobalLeaderboard() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -44,10 +39,6 @@ export default function GlobalLeaderboard() {
 
     refresh();
 
-    // REALTIME: refetch begitu ada hasil game baru masuk ke game_results —
-    // pemain yang selesai di room lain langsung muncul di ranking tanpa
-    // perlu refresh halaman. (Butuh tabel game_results masuk publication
-    // supabase_realtime — sudah ditambahkan di schema.sql.)
     const channel = supabase
       .channel("global-leaderboard")
       .on(
@@ -57,9 +48,6 @@ export default function GlobalLeaderboard() {
       )
       .subscribe();
 
-    // Fallback: kalau Realtime tidak aktif di project Supabase-nya (belum
-    // enable publication), polling tiap 15 detik tetap membuat papan skor
-    // ter-update untuk semua orang.
     const poll = setInterval(refresh, 15000);
 
     return () => {

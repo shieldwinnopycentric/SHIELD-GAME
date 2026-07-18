@@ -4,15 +4,12 @@ const SERVER_URL = import.meta.env.VITE_SERVER_URL || "http://localhost:4000";
 const TOKEN_STORAGE_KEY = "shield_admin_token";
 
 const LEVELS = [1, 2, 3];
-// Target jumlah soal per level menurut desain mekanik game — harus sinkron
-// dengan LEVEL_META.questions di backend/game/challenges.js.
 const LEVEL_TARGETS = { 1: 3, 2: 6, 3: 10 };
 const LEVEL_ACCENTS = {
   1: { text: "text-primary", border: "border-primary", bg: "bg-primary" },
   2: { text: "text-success", border: "border-success", bg: "bg-success" },
   3: { text: "text-danger", border: "border-danger", bg: "bg-danger" },
 };
-// Aksen per ruang — senada dengan tema GuidanceRoom (biru/merah/kuning).
 const ROOM_ACCENTS = {
   bimbingan: { text: "text-primary", border: "border-primary", icon: "🧭" },
   "rumah-sakit": { text: "text-danger", border: "border-danger", icon: "🏥" },
@@ -46,10 +43,6 @@ async function api(path, token, options = {}) {
   if (!res.ok) throw new Error(data.error || `Request gagal (${res.status})`);
   return data;
 }
-
-/* ------------------------------------------------------------------ */
-/* Login                                                                */
-/* ------------------------------------------------------------------ */
 
 function LoginForm({ onLogin }) {
   const [token, setToken] = useState("");
@@ -116,10 +109,6 @@ function LoginForm({ onLogin }) {
   );
 }
 
-/* ------------------------------------------------------------------ */
-/* Bangunan kecil dashboard                                             */
-/* ------------------------------------------------------------------ */
-
 function SectionHeader({ title, subtitle, children }) {
   return (
     <div className="flex flex-wrap items-end justify-between gap-3 mb-5">
@@ -165,10 +154,6 @@ function SeedOnlyBanner() {
   );
 }
 
-/* ------------------------------------------------------------------ */
-/* Bank Soal                                                            */
-/* ------------------------------------------------------------------ */
-
 function ChallengeForm({ initial, onCancel, onSave }) {
   const [form, setForm] = useState(initial || emptyForm);
   const [saving, setSaving] = useState(false);
@@ -177,7 +162,6 @@ function ChallengeForm({ initial, onCancel, onSave }) {
   function updateOption(idx, field, value) {
     const options = form.options.map((o, i) => {
       if (field === "correct") {
-        // single-correct-answer semantics: selecting one clears the rest
         return { ...o, correct: i === idx };
       }
       return i === idx ? { ...o, [field]: value } : o;
@@ -321,7 +305,7 @@ function ChallengeForm({ initial, onCancel, onSave }) {
 
 function BankSoalSection({ token, rows, seedOnly, loading, error, onRefresh }) {
   const [activeLevel, setActiveLevel] = useState(1);
-  const [editing, setEditing] = useState(null); // null | "new" | row
+  const [editing, setEditing] = useState(null);
   const [seeding, setSeeding] = useState(false);
 
   async function handleSave(form) {
@@ -493,10 +477,6 @@ function BankSoalSection({ token, rows, seedOnly, loading, error, onRefresh }) {
   );
 }
 
-/* ------------------------------------------------------------------ */
-/* Materi Ruang (Ruang Bimbingan / Rumah Sakit / Penjara)               */
-/* ------------------------------------------------------------------ */
-
 function RoomMaterialForm({ room, seedOnly, onSave, onReset }) {
   const [form, setForm] = useState({
     speaker: room.speaker,
@@ -509,8 +489,6 @@ function RoomMaterialForm({ room, seedOnly, onSave, onReset }) {
   const [error, setError] = useState("");
   const [savedAt, setSavedAt] = useState(null);
 
-  // Re-sync form kalau admin pindah ruang (komponen di-remount lewat key,
-  // tapi jaga-jaga kalau parent me-reuse instance).
   useEffect(() => {
     setForm({
       speaker: room.speaker,
@@ -794,13 +772,8 @@ function MateriRuangSection({ token, rooms, seedOnly, loading, error, onRefresh 
   );
 }
 
-/* ------------------------------------------------------------------ */
-/* Ringkasan                                                            */
-/* ------------------------------------------------------------------ */
-
 function OverviewSection({ challengeRows, rooms, seedOnly, onNavigate }) {
   const totalSoal = challengeRows.length;
-  const customRooms = rooms.filter((r) => r.custom).length;
 
   return (
     <div>
@@ -880,10 +853,6 @@ function OverviewSection({ challengeRows, rooms, seedOnly, onNavigate }) {
   );
 }
 
-/* ------------------------------------------------------------------ */
-/* Kerangka dashboard: sidebar + konten                                 */
-/* ------------------------------------------------------------------ */
-
 const NAV_ITEMS = [
   { id: "overview", label: "Ringkasan", icon: "📊" },
   { id: "challenges", label: "Bank Soal", icon: "📝" },
@@ -893,13 +862,11 @@ const NAV_ITEMS = [
 function AdminDashboard({ token, onLogout }) {
   const [section, setSection] = useState("overview");
 
-  // Data soal
   const [challengeRows, setChallengeRows] = useState([]);
   const [challengeSeedOnly, setChallengeSeedOnly] = useState(false);
   const [challengeLoading, setChallengeLoading] = useState(true);
   const [challengeError, setChallengeError] = useState("");
 
-  // Data materi ruang
   const [rooms, setRooms] = useState([]);
   const [roomSeedOnly, setRoomSeedOnly] = useState(false);
   const [roomLoading, setRoomLoading] = useState(true);
@@ -943,7 +910,6 @@ function AdminDashboard({ token, onLogout }) {
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row">
-      {/* Sidebar */}
       <aside className="md:w-60 shrink-0 bg-panel/70 border-b md:border-b-0 md:border-r border-line md:min-h-screen flex md:flex-col">
         <div className="hidden md:flex items-center gap-2 px-5 py-5 border-b border-line">
           <span className="w-9 h-9 rounded-lg bg-shield/15 border border-shield flex items-center justify-center">
@@ -993,7 +959,6 @@ function AdminDashboard({ token, onLogout }) {
         </div>
       </aside>
 
-      {/* Konten utama */}
       <main className="flex-1 min-w-0 p-4 sm:p-6 lg:p-8 max-w-5xl">
         {section === "overview" && (
           <OverviewSection

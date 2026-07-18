@@ -10,7 +10,7 @@ export default function Lobby({ player, roomCode, setRoomCode, setPlayerKey, onG
   const [players, setPlayers] = useState([]);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
-  const [mode, setMode] = useState(roomCode ? "in-room" : "choose"); // choose | in-room
+  const [mode, setMode] = useState(roomCode ? "in-room" : "choose");
 
   useEffect(() => {
     if (!socket.connected) socket.connect();
@@ -19,9 +19,6 @@ export default function Lobby({ player, roomCode, setRoomCode, setPlayerKey, onG
       setPlayers(p);
     }
     function onGameStartEvt({ players: roster, durationMs }) {
-      // Forward the server's starting roster (positions + character per
-      // player) so GameScreen/Phaser can place everyone correctly instead
-      // of spawning everyone at the same default coordinate.
       onGameStart({ roster, durationMs });
     }
 
@@ -39,7 +36,7 @@ export default function Lobby({ player, roomCode, setRoomCode, setPlayerKey, onG
     socket.emit("create_room", player, (res) => {
       if (!res.ok) return setError("Gagal membuat room.");
       setRoomCode(res.code);
-      setPlayerKey?.(res.playerKey); // kunci resume-setelah-refresh
+      setPlayerKey?.(res.playerKey);
       setPlayers(res.players);
       setMode("in-room");
     });
@@ -50,7 +47,7 @@ export default function Lobby({ player, roomCode, setRoomCode, setPlayerKey, onG
     socket.emit("join_room", { code: joinCode.trim().toUpperCase(), ...player }, (res) => {
       if (!res.ok) return setError(errorMessage(res.error));
       setRoomCode(res.code);
-      setPlayerKey?.(res.playerKey); // kunci resume-setelah-refresh
+      setPlayerKey?.(res.playerKey);
       setPlayers(res.players);
       setMode("in-room");
       setError("");
@@ -63,8 +60,6 @@ export default function Lobby({ player, roomCode, setRoomCode, setPlayerKey, onG
     socket.emit("set_ready", { code: roomCode, ready: next });
   }
 
-  // Leave the current room and return to the create/join chooser (still
-  // connected, so the player can immediately make or join another room).
   function leaveRoom() {
     if (roomCode) socket.emit("leave_room", { code: roomCode });
     setRoomCode(null);
@@ -74,8 +69,6 @@ export default function Lobby({ player, roomCode, setRoomCode, setPlayerKey, onG
     setMode("choose");
   }
 
-  // Top-left back: from inside a room -> leave it; from the chooser -> go back
-  // to avatar selection.
   function handleBack() {
     if (mode === "in-room") leaveRoom();
     else onBack?.();

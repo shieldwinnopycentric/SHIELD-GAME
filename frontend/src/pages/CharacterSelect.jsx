@@ -2,35 +2,30 @@ import { useState } from "react";
 import BackButton from "../components/BackButton.jsx";
 import PageBackground from "../components/PageBackground.jsx";
 
-// Non-gendered archetypes per KONSEP_GAME_SHIELD.pdf — pick a role, not a
-// gender. Asset filenames map 1:1 to what MainScene.js loads.
 const CHARACTERS = [
   {
     id: "nexus",
     label: "Nexus",
     tagline: "The Visionary Leader",
     asset: "/assets/character-nexus.png",
-    fallbackColor: "#049CD8", // mario blue
+    fallbackColor: "#049CD8",
   },
   {
     id: "cypher",
     label: "Cypher",
     tagline: "The Tech Prodigy",
     asset: "/assets/character-cypher.png",
-    fallbackColor: "#43B047", // mario green
+    fallbackColor: "#43B047",
   },
   {
     id: "helix",
     label: "Helix",
     tagline: "The Unstoppable Bastion",
     asset: "/assets/character-helix.png",
-    fallbackColor: "#E52521", // mario red
+    fallbackColor: "#E52521",
   },
 ];
 
-// Shows the *actual* in-game sprite as the preview (same file MainScene.js
-// loads), falling back to a colored circle with the first letter if the
-// asset hasn't been added to /public/assets/ yet.
 function CharacterPreview({ asset, label, fallbackColor }) {
   const [broken, setBroken] = useState(false);
 

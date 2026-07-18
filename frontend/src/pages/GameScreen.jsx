@@ -10,9 +10,6 @@ import { confirmDialog } from "../lib/dialog.js";
 const GAME_DURATION_MS = 15 * 60 * 1000;
 
 export default function GameScreen({ player, roomCode, playerKey, initialGameState, onGameOver, onExit }) {
-  // Saat masuk dari hasil RESUME (refresh di tengah game), initialGameState
-  // membawa snapshot progres dari server — pakai itu sebagai state awal
-  // supaya HUD/level tidak balik ke Level 1.
   const resume = initialGameState?.resume;
   const [level, setLevel] = useState(resume?.level ?? 1);
   const [questionNumber, setQuestionNumber] = useState(null);
@@ -26,18 +23,18 @@ export default function GameScreen({ player, roomCode, playerKey, initialGameSta
   const [correctCount, setCorrectCount] = useState(resume?.correctCount ?? 0);
   const [timeLeftMs, setTimeLeftMs] = useState(GAME_DURATION_MS);
   const [finished, setFinished] = useState(!!resume?.finished);
-  const [won, setWon] = useState(!!resume?.won); // satu-satunya cara "finished": menang di Level 3
+  const [won, setWon] = useState(!!resume?.won);
 
   const [challenge, setChallenge] = useState(null);
   const [resultState, setResultState] = useState(null);
-  const [transition, setTransition] = useState(null); // { type, ... } (passed/won)
-  const [roomView, setRoomView] = useState(null); // halaman ruang kegagalan (failed)
+  const [transition, setTransition] = useState(null);
+  const [roomView, setRoomView] = useState(null);
 
   const startRef = useRef(Date.now());
   const durationRef = useRef(GAME_DURATION_MS);
   const timeUpSentRef = useRef(false);
-  const intentionalExitRef = useRef(false); // true saat pemain sendiri menekan Keluar
-  const pendingLevelRef = useRef(null); // stashes level info while a per-question result is shown
+  const intentionalExitRef = useRef(false);
+  const pendingLevelRef = useRef(null);
 
   useEffect(() => {
     startRef.current = Date.now();
@@ -51,25 +48,18 @@ export default function GameScreen({ player, roomCode, playerKey, initialGameSta
     }
     socket.on("game_over", onGameOverEvt);
 
-    // Mid-game connection drop (common on phones: wifi blip / screen lock).
-    // The server frees our slot on disconnect and a reconnect gets a NEW
-    // socket id the room doesn't know — so the session is unrecoverable.
-    // Tell the player instead of leaving them silently stuck on the map.
     function onDisconnect() {
-      if (intentionalExitRef.current) return; // player chose "Keluar" — no alert
+      if (intentionalExitRef.current) return;
       alert("Koneksi terputus — kamu keluar dari room. Silakan gabung room baru.");
       onExit?.();
     }
     socket.on("disconnect", onDisconnect);
 
     const timer = setInterval(() => {
-      // Count down from the duration the SERVER said is left at game_start —
-      // a player who joined late (or whose game_start was delayed) previously
-      // ran a full local 15:00 out of sync with everyone else's clock.
       const left = Math.max(0, durationRef.current - (Date.now() - startRef.current));
       setTimeLeftMs(left);
       if (left <= 0 && !timeUpSentRef.current) {
-        timeUpSentRef.current = true; // ping the server once, not every second
+        timeUpSentRef.current = true;
         socket.emit("leave_or_time_up_check", { code: roomCode });
       }
     }, 1000);
@@ -96,10 +86,6 @@ export default function GameScreen({ player, roomCode, playerKey, initialGameSta
     });
   }
 
-  // Only called when MainScene detects the player is next to the NPC
-  // marker matching their ACTUAL current level (see MainScene.js) — so a
-  // fresh question only ever appears from physically approaching the
-  // right NPC, never automatically.
   function handleNearNpc() {
     if (finished || challenge || transition || roomView) return;
     requestChallenge();
@@ -114,7 +100,7 @@ export default function GameScreen({ player, roomCode, playerKey, initialGameSta
         setLevel(res.level);
         setScore(res.score);
         setTotalQuestions(res.totalQuestions);
-        setQuestionNumber(res.questionIndex + 1); // upcoming question, 1-based
+        setQuestionNumber(res.questionIndex + 1);
         setWrongInLevel(res.wrongInLevel);
         setMaxWrong(res.maxWrong);
         setLives(res.lives);
@@ -132,11 +118,6 @@ export default function GameScreen({ player, roomCode, playerKey, initialGameSta
     );
   }
 
-  // Per-question "Lanjutkan" (inside ChallengeModal):
-  //  - "continue"    -> masih ada soal di level yang sama, langsung lanjut.
-  //  - "levelPassed" -> tampilkan interstitial LOLOS (won=true kalau menang L3).
-  //  - "levelFailed" -> tampilkan interstitial GAGAL (Ruang Bimbingan/Rumah
-  //    Sakit), lalu pemain mengulang level (repeatLevel).
   function handleContinue() {
     const res = pendingLevelRef.current;
     setChallenge(null);
@@ -150,15 +131,13 @@ export default function GameScreen({ player, roomCode, playerKey, initialGameSta
     if (res.result === "levelPassed") {
       setTransition({
         type: "passed",
-        level: res.clearedLevel ?? res.level, // level yang baru saja dilewati
+        level: res.clearedLevel ?? res.level,
         won: res.won,
       });
       return;
     }
 
     if (res.result === "levelFailed") {
-      // Bukan popup: pemain auto-masuk ke HALAMAN ruang (GuidanceRoom) untuk
-      // membaca materi literasi dulu sebelum boleh mengulang level.
       setRoomView({
         failRoom: res.failRoom,
         failedLevel: res.failedLevel,
@@ -169,16 +148,10 @@ export default function GameScreen({ player, roomCode, playerKey, initialGameSta
     }
   }
 
-  // Tombol "Kembali ke Game" di halaman ruang (aktif setelah materi dibaca).
-  // Server sudah mereset pemain ke repeatLevel dengan nyawa penuh, jadi cukup
-  // menutup halaman — pemain lalu mendekati NPC level itu untuk lanjut.
   function handleRoomExit() {
     setRoomView(null);
   }
 
-  // Builds a leaderboard row from THIS player's own final stats and jumps
-  // straight to the results/leaderboard screen — so a player who wins sees
-  // their score immediately instead of waiting for the whole room to end.
   function goToResults() {
     onGameOver([
       {
@@ -197,11 +170,6 @@ export default function GameScreen({ player, roomCode, playerKey, initialGameSta
     ]);
   }
 
-  // Transition screen's button:
-  //  - MENANG (won) -> langsung ke layar Hasil & Leaderboard.
-  //  - lolos level biasa / gagal (ulang level) -> tutup interstitial saja;
-  //    pemain jalan ke marker NPC level yang aktif agar soal muncul (tidak
-  //    auto-fetch).
   function handleTransitionContinue() {
     if (transition?.won) {
       goToResults();
@@ -210,9 +178,6 @@ export default function GameScreen({ player, roomCode, playerKey, initialGameSta
     setTransition(null);
   }
 
-  // Quit the match mid-game. Disconnecting frees the player's slot server-side
-  // (marked finished so the room isn't blocked waiting on them), then we hand
-  // control back to App to return home.
   async function handleExit() {
     const ok = await confirmDialog({
       title: "Keluar Game?",
@@ -230,9 +195,6 @@ export default function GameScreen({ player, roomCode, playerKey, initialGameSta
 
   return (
     <div className="w-full max-w-4xl mx-auto">
-      {/* Game frame — large on mobile (fills most of the screen height); the
-          HUD, status banner and controls hint float INSIDE it as overlays so
-          nothing eats vertical space or overflows off-screen on a phone. */}
       <div className="relative w-full h-[74svh] md:h-auto md:aspect-[8/5] rounded-lg overflow-hidden border border-line">
         <PhaserGame
           socket={socket}

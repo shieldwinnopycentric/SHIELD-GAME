@@ -1,59 +1,5 @@
 import Phaser from "phaser";
 
-/**
- * MainScene draws the battlefield map exploration.
- *
- * ASSETS: drop renamed PNGs into `frontend/public/assets/`. Only the files
- * under REQUIRED_ASSETS are mandatory (missing ones auto-fallback to a
- * placeholder shape). OPTIONAL_ASSETS add map variety / distinct NPC
- * markers per level / enemy icon — safe to skip, everything still renders.
- *
- *   REQUIRED
- *   /assets/tile-ground.png       -> base ground/road tile
- *   /assets/character-nexus.png   -> "Nexus" avatar sprite
- *   /assets/character-cypher.png  -> "Cypher" avatar sprite
- *   /assets/character-helix.png   -> "Helix" avatar sprite
- *   /assets/npc-marker.png        -> generic NPC / encounter marker icon
- *                                     (fallback used for any level that
- *                                     doesn't have its own marker below)
- *
- *   OPTIONAL — map look
- *   /assets/map-background.png    -> RECOMMENDED: one ready-made scene image
- *                                     (e.g. from itch.io / OpenGameArt) used
- *                                     as the entire map background instead
- *                                     of assembling one from small tiles.
- *                                     If present, tile-ground(-2/-3) below
- *                                     are ignored entirely for the ground.
- *   /assets/tile-ground-2.png     -> only used if map-background.png is
- *                                     absent: a 2nd ground tile variant
- *   /assets/tile-ground-3.png     -> only used if map-background.png is
- *                                     absent: a 3rd ground tile variant
- *   /assets/tile-path.png         -> a road/path tile for the walking route
- *                                     (works with EITHER map-background.png
- *                                     or the tile-mosaic fallback)
- *   /assets/decor-1.png / decor-2.png / decor-3.png -> scattered decoration
- *                                     (only used in the tile-mosaic fallback)
- *
- *   OPTIONAL — distinct marker per level (so Level 1/2/3 don't look
- *   identical on the map)
- *   /assets/npc-marker-1.png      -> Level 1 marker
- *   /assets/npc-marker-2.png      -> Level 2 marker
- *   /assets/npc-marker-3.png      -> Level 3 marker
- *
- *   OPTIONAL — enemy icon shown clustered near each marker, count = jumlah
- *   musuh level itu (1/3/5), per KONSEP_GAME_SHIELD.pdf ("musuhnya tolong
- *   ditampilin juga di map")
- *   /assets/enemy-icon.png
- *
- * Every player (yourself and teammates) renders using whichever of
- * character-nexus/cypher/helix matches THEIR chosen avatar, so you can
- * tell players apart by name tag + avatar instead of a generic placeholder.
- *
- * Colorful/variatif per konsep: tiap zona level punya lingkaran warna khas
- * (biru/kuning/merah, dari palet Mario) di belakang marker-nya, plus efek
- * asap ambient tersebar di map (tema inhalan).
- */
-
 const REQUIRED_ASSETS = {
   "tile-ground": "/assets/tile-ground.png",
   "character-nexus": "/assets/character-nexus.png",
@@ -75,23 +21,22 @@ const OPTIONAL_ASSETS = {
 
 const TILE_SIZE = 64;
 const SPRITE_SIZE = 32;
-const MARKER_SIZE = 56; // NPC markers rendered bigger than character sprites so they stand out on the map
+const MARKER_SIZE = 56;
 const ENEMY_ICON_SIZE = 16;
 const MAP_W = 1600;
 const MAP_H = 1200;
 const SPAWN = { x: 400, y: 300 };
 
-// Mario-palette accents per level zone (mixed & matched per konsep doc).
 const LEVEL_COLORS = {
-  1: 0x049cd8, // marioBlue
-  2: 0xfbd000, // marioYellow
-  3: 0xe52521, // marioRed
+  1: 0x049cd8,
+  2: 0xfbd000,
+  3: 0xe52521,
 };
 
 export default class MainScene extends Phaser.Scene {
   constructor() {
     super("MainScene");
-    this.otherPlayers = new Map(); // id -> { sprite, nameTag }
+    this.otherPlayers = new Map();
     this.npcZones = [];
     this.missingAssetKeys = new Set();
   }
@@ -104,26 +49,16 @@ export default class MainScene extends Phaser.Scene {
     this.currentLevel = currentLevel || 1;
     this.onNearNpc = onNearNpc;
     this.currentNpc = null;
-    this.mustExitZone = false; // set true after each level-up (see setCurrentLevel)
+    this.mustExitZone = false;
   }
 
-  /** Called from PhaserGame.jsx whenever the player's real level (confirmed
-   * by the server) changes, so only the NPC matching that level responds
-   * when approached. */
   setCurrentLevel(level) {
     this.currentLevel = level;
-    this.currentNpc = null; // allow the newly-relevant zone to trigger fresh
-    // Hard rule: after a level advances, the player MUST walk out of any NPC
-    // zone and then approach the NEXT level's NPC before a new challenge can
-    // start. This makes it impossible for level N+1 to auto-start just
-    // because the player was standing on the previous NPC when they leveled
-    // up (or was mid-move when the transition closed).
+    this.currentNpc = null;
     this.mustExitZone = true;
     this.applyZoneDimming();
   }
 
-  /** Full opacity for the marker matching the player's current level,
-   * dimmed for the others — a quick visual cue for which NPC to approach. */
   applyZoneDimming() {
     (this.npcZones || []).forEach((nz) => {
       nz.marker?.setAlpha(nz.level === this.currentLevel ? 1 : 0.35);
@@ -151,11 +86,10 @@ export default class MainScene extends Phaser.Scene {
       g.clear();
     };
 
-    // Only REQUIRED_ASSETS get a guaranteed placeholder.
     ensure(
       "tile-ground",
       (gg) => {
-        gg.fillStyle(0x141c24, 1); // cool-dark, sesuai panel neutral
+        gg.fillStyle(0x141c24, 1);
         gg.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
         gg.lineStyle(1, 0x263340, 1);
         gg.strokeRect(0, 0, TILE_SIZE, TILE_SIZE);
@@ -166,7 +100,7 @@ export default class MainScene extends Phaser.Scene {
     ensure(
       "character-nexus",
       (gg) => {
-        gg.fillStyle(0x049cd8, 1); // marioBlue
+        gg.fillStyle(0x049cd8, 1);
         gg.fillCircle(SPRITE_SIZE / 2, SPRITE_SIZE / 2, SPRITE_SIZE / 2);
       },
       SPRITE_SIZE
@@ -175,7 +109,7 @@ export default class MainScene extends Phaser.Scene {
     ensure(
       "character-cypher",
       (gg) => {
-        gg.fillStyle(0x43b047, 1); // marioGreen
+        gg.fillStyle(0x43b047, 1);
         gg.fillCircle(SPRITE_SIZE / 2, SPRITE_SIZE / 2, SPRITE_SIZE / 2);
       },
       SPRITE_SIZE
@@ -184,7 +118,7 @@ export default class MainScene extends Phaser.Scene {
     ensure(
       "character-helix",
       (gg) => {
-        gg.fillStyle(0xe52521, 1); // marioRed
+        gg.fillStyle(0xe52521, 1);
         gg.fillCircle(SPRITE_SIZE / 2, SPRITE_SIZE / 2, SPRITE_SIZE / 2);
       },
       SPRITE_SIZE
@@ -193,7 +127,7 @@ export default class MainScene extends Phaser.Scene {
     ensure(
       "npc-marker",
       (gg) => {
-        gg.fillStyle(0xe52521, 1); // marioRed
+        gg.fillStyle(0xe52521, 1);
         gg.fillTriangle(MARKER_SIZE / 2, 0, MARKER_SIZE, MARKER_SIZE, 0, MARKER_SIZE);
       },
       MARKER_SIZE
@@ -208,7 +142,6 @@ export default class MainScene extends Phaser.Scene {
       ENEMY_ICON_SIZE
     );
 
-    // Soft translucent circle used for the ambient smoke effect.
     ensure(
       "smoke-puff",
       (gg) => {
@@ -277,10 +210,6 @@ export default class MainScene extends Phaser.Scene {
     this.buildTileMosaicGround(npcPositions);
   }
 
-  /** Preferred path: one ready-made scene image stretched across the whole
-   * map, optionally with a path overlay if tile-path.png was also
-   * provided. Avoids the "patchwork of mismatched tiles" look you get from
-   * randomly mixing many unrelated small tiles. */
   buildSingleImageBackground(bgKey, npcPositions) {
     this.add
       .image(MAP_W / 2, MAP_H / 2, bgKey)
@@ -290,8 +219,6 @@ export default class MainScene extends Phaser.Scene {
     const pathKey = this.availableKeys(["tile-path"])[0];
     if (!pathKey) return;
 
-    // Optional thin path overlay so the route to each NPC still reads
-    // clearly on top of the background art.
     const pathCells = this.buildPathCells(npcPositions);
     pathCells.forEach((cellKey) => {
       const [cx, cy] = cellKey.split(",").map(Number);
@@ -303,12 +230,6 @@ export default class MainScene extends Phaser.Scene {
     });
   }
 
-  /** Fallback when no map-background.png is provided: procedurally tile
-   * whatever ground tile(s) you've added, with variety (rotation/flip/tint)
-   * so a single repeated tile doesn't look like plain stripes. Works best
-   * when tile-ground(-2/-3).png are visually similar (e.g. grass shades) —
-   * mixing unrelated tiles (water, crates, walls) here will look patchy,
-   * which is exactly why a single map-background.png is recommended instead. */
   buildTileMosaicGround(npcPositions) {
     const groundKeys = ["tile-ground", ...this.availableKeys(["tile-ground-2", "tile-ground-3"])];
     const pathKey = this.availableKeys(["tile-path"])[0] || null;
@@ -349,9 +270,6 @@ export default class MainScene extends Phaser.Scene {
     }
   }
 
-  /** Colored zone glow + enemy-count cluster behind each NPC marker, so
-   * Level 1/2/3 read as visually distinct AND show how many opponents
-   * that level represents (1 vs 1 / 1 vs 3 / 1 vs 5). */
   buildLevelZoneDecoration(pos) {
     const color = LEVEL_COLORS[pos.level] ?? 0xe0793c;
     this.add.circle(pos.x, pos.y, 85, color, 0.12).setDepth(0);
@@ -374,15 +292,10 @@ export default class MainScene extends Phaser.Scene {
       .setDepth(3);
   }
 
-  /** Ambient smoke puffs drifting slowly across the map — nods to the
-   * inhalant theme without depicting anything graphic. */
   buildSmokeEffect() {
     const smokeKey = this.textures.exists("smoke-puff") ? "smoke-puff" : null;
     if (!smokeKey) return;
 
-    // NORMAL blend + low spawn rate: additive blending over a full-map
-    // emitter is one of the most expensive things a low-end phone GPU can
-    // do, and it's the main reason the map stuttered on HP but not laptop.
     this.add.particles(0, 0, smokeKey, {
       x: { min: 0, max: MAP_W },
       y: { min: 0, max: MAP_H },
@@ -419,9 +332,6 @@ export default class MainScene extends Phaser.Scene {
     npcPositions.forEach((pos) => this.buildLevelZoneDecoration(pos));
     this.buildSmokeEffect();
 
-    // Find my own starting position (staggered per-player by the server)
-    // in the initial roster, falling back to the default spawn if it's
-    // missing for any reason.
     const myId = this.socket.id;
     const mySpawn = this.initialRoster.find((p) => p.id === myId);
     const startX = mySpawn?.x ?? SPAWN.x;
@@ -436,10 +346,6 @@ export default class MainScene extends Phaser.Scene {
 
     this.nameTag = this.createNameTag(startX, startY, this.playerMeta.name);
 
-    // Pre-create every OTHER player from the roster at their real starting
-    // position + correct avatar, instead of waiting for their first
-    // movement update (which used to leave them invisible, stacked on the
-    // default spawn point).
     this.initialRoster
       .filter((p) => p.id !== myId)
       .forEach((p) => this.getOrCreateOther(p.id, p.x, p.y, p.character, p.name));
@@ -460,8 +366,8 @@ export default class MainScene extends Phaser.Scene {
 
     this.npcZones.forEach((nz) => {
       this.physics.add.overlap(this.self, nz.zone, () => {
-        if (nz.level !== this.currentLevel) return; // NPC belum/tidak relevan untuk progres saat ini
-        if (this.mustExitZone) return; // harus keluar zona lama dulu sesudah naik level
+        if (nz.level !== this.currentLevel) return;
+        if (this.mustExitZone) return;
         if (this.currentNpc !== nz.level) {
           this.currentNpc = nz.level;
           this.onNearNpc(nz.level);
@@ -479,17 +385,12 @@ export default class MainScene extends Phaser.Scene {
     this.setupJoystick();
     this.setupResponsiveZoom();
 
-    // Store the target position and lerp toward it in update() instead of
-    // teleporting the sprite on every packet — movement updates arrive at
-    // ~12 Hz, so hard setPosition made teammates stutter across the map.
     this.onPlayerMoved = ({ id, x, y }) => {
       const entry = this.getOrCreateOther(id, x, y);
       entry.target = { x, y };
     };
     this.socket.on("player_moved", this.onPlayerMoved);
 
-    // Remove the sprite of anyone who disconnects mid-game so they don't
-    // linger as a frozen "ghost" on everyone else's map.
     this.onPlayerProgress = ({ id, disconnected }) => {
       if (!disconnected) return;
       const entry = this.otherPlayers.get(id);
@@ -501,9 +402,6 @@ export default class MainScene extends Phaser.Scene {
     };
     this.socket.on("player_progress", this.onPlayerProgress);
 
-    // Teammate refreshed their browser: their slot was rebound to a new
-    // socket id. Move their existing sprite over to the new id (or create
-    // one if we never had it) so they don't duplicate or freeze.
     this.onPlayerRebound = ({ oldId, id, name, character, x, y }) => {
       const old = this.otherPlayers.get(oldId);
       if (old) {
@@ -516,9 +414,6 @@ export default class MainScene extends Phaser.Scene {
     };
     this.socket.on("player_rebound", this.onPlayerRebound);
 
-    // The socket is a module-level singleton that outlives this scene; if the
-    // listeners aren't removed, a rematch registers duplicates that call into
-    // a destroyed scene and crash/corrupt rendering.
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.socket.off("player_moved", this.onPlayerMoved);
       this.socket.off("player_progress", this.onPlayerProgress);
@@ -526,12 +421,8 @@ export default class MainScene extends Phaser.Scene {
     });
   }
 
-  /** Keep the amount of visible world roughly constant across devices: a
-   * phone's ~390px-wide viewport otherwise shows a tiny, hugely-zoomed slice
-   * of the 1600x1200 map compared to a laptop, which is why the game looked
-   * completely different (and disorienting) on HP vs laptop. */
   setupResponsiveZoom() {
-    const TARGET_VIEW_W = 800; // world pixels we want visible horizontally
+    const TARGET_VIEW_W = 800;
     const applyZoom = () => {
       const w = this.scale.width || TARGET_VIEW_W;
       const zoom = Phaser.Math.Clamp(w / TARGET_VIEW_W, 0.5, 1.3);
@@ -544,7 +435,6 @@ export default class MainScene extends Phaser.Scene {
     });
   }
 
-  /** Gets or lazily creates an { sprite, nameTag } pair for another player. */
   getOrCreateOther(id, x, y, character, name) {
     if (this.otherPlayers.has(id)) return this.otherPlayers.get(id);
 
@@ -563,15 +453,6 @@ export default class MainScene extends Phaser.Scene {
     return entry;
   }
 
-  /**
-   * On-screen analog joystick for touch devices. A "dynamic" joystick:
-   * wherever you first press, a base ring appears and the thumb tracks your
-   * finger (clamped to JOY_RADIUS), producing a normalized movement vector
-   * consumed in update(). Screen-fixed (setScrollFactor 0) so it stays put
-   * while the camera follows the player. Keyboard (WASD/arrows) is untouched
-   * for laptop play. Only touch pointers activate it, so a mouse on desktop
-   * never accidentally drags the character.
-   */
   setupJoystick() {
     const JOY_RADIUS = 60;
     const DEADZONE = 0.18;
@@ -579,7 +460,6 @@ export default class MainScene extends Phaser.Scene {
     this.joyActive = false;
     this.joyPointerId = null;
 
-    // Allow a 2nd/3rd concurrent touch (e.g. moving + tapping a button).
     this.input.addPointer(2);
 
     this.joyBase = this.add
@@ -644,10 +524,6 @@ export default class MainScene extends Phaser.Scene {
     let vx = 0;
     let vy = 0;
 
-    // Self-heal: if the finger driving the joystick was released over a DOM
-    // overlay (e.g. the challenge modal), Phaser may never get the pointerup.
-    // Detect the tracked pointer no longer being down and reset, so the
-    // joystick never gets stuck "on".
     if (this.joyActive) {
       const p = (this.input.manager?.pointers || []).find(
         (pt) => pt.id === this.joyPointerId
@@ -661,13 +537,10 @@ export default class MainScene extends Phaser.Scene {
     if (this.cursors.up.isDown || this.wasd.W.isDown) vy = -speed;
     else if (this.cursors.down.isDown || this.wasd.S.isDown) vy = speed;
 
-    // Touch joystick takes over when active (overrides keyboard axes).
     if (this.joyActive && (this.joyVec.x !== 0 || this.joyVec.y !== 0)) {
       vx = this.joyVec.x * speed;
       vy = this.joyVec.y * speed;
     } else if (vx !== 0 && vy !== 0) {
-      // Normalize keyboard diagonals so moving diagonally isn't ~41% faster
-      // than straight (unfair between players spamming diagonals vs not).
       vx *= Math.SQRT1_2;
       vy *= Math.SQRT1_2;
     }
@@ -675,29 +548,17 @@ export default class MainScene extends Phaser.Scene {
     this.self.setVelocity(vx, vy);
     this.nameTag.setPosition(this.self.x, this.self.y - 24);
 
-    // Hysteresis: the trigger zone is a 110x110 box (reaches ~70px+ from
-    // center), so the "player left" radius must be LARGER than the zone —
-    // not smaller. It used to be 60, which meant standing on the zone's edge
-    // counted as inside (overlap) and outside (this check) at the same time,
-    // re-triggering the NPC every frame and wiping the benar/salah result
-    // with a fresh question the instant you answered.
     const stillNear = this.npcZones.some(
       (nz) => Phaser.Math.Distance.Between(this.self.x, this.self.y, nz.x, nz.y) < 95
     );
     if (!stillNear) {
       this.currentNpc = null;
-      // Player has stepped away from every NPC — the next time they walk into
-      // a zone it's a genuine, deliberate approach, so lift the post-levelup
-      // lock.
       this.mustExitZone = false;
     }
 
     if (time - this.lastSent > 80) {
       const dx = this.self.x - this.lastSentPos.x;
       const dy = this.self.y - this.lastSentPos.y;
-      // Only emit when we actually moved — with 10 players idling on the
-      // map, constant no-op packets are pure waste for phone radios and the
-      // server alike.
       if (dx * dx + dy * dy > 1) {
         this.lastSent = time;
         this.lastSentPos = { x: this.self.x, y: this.self.y };
@@ -705,8 +566,6 @@ export default class MainScene extends Phaser.Scene {
       }
     }
 
-    // Smoothly move teammates toward their latest known position instead of
-    // snapping (network updates arrive far less often than frames render).
     this.otherPlayers.forEach((entry) => {
       const { sprite, nameTag, target } = entry;
       if (!target) return;

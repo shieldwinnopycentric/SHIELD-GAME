@@ -1,8 +1,5 @@
 import { useState } from "react";
 
-// One question at a time within the current level's encounter. Progress
-// (soal X/N, salah Y/allowed) is shown in the header so players can see
-// how close they are to the end-of-level pass/fail threshold.
 export default function ChallengeModal({ challenge, onAnswer, resultState, onContinue }) {
   const [selected, setSelected] = useState(null);
 

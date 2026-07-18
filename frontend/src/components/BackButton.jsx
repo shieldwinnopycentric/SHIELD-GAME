@@ -1,6 +1,3 @@
-// Consistent back/return control used across screens. Fixed to the top-left
-// of the viewport so it's always in the same spot on both phone and desktop.
-// Icon-only on small screens, icon + label from `sm` up.
 export default function BackButton({ onClick, label = "Kembali", className = "" }) {
   return (
     <button

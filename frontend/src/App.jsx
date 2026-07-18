@@ -7,14 +7,8 @@ import ResultsScreen from "./pages/ResultsScreen.jsx";
 import AdminPage from "./pages/AdminPage.jsx";
 import Opening from "./pages/Opening.jsx";
 
-// Lazy: GameScreen pulls in Phaser (~1.5 MB minified). Loading it only when
-// the match actually starts makes the opening/login/lobby screens load fast
-// on phones — the engine chunk downloads in the background while players sit
-// in the lobby.
 const GameScreen = lazy(() => import("./pages/GameScreen.jsx"));
 
-// Screen flow: Opening (splash) -> Login -> Pilih karakter -> Lobby ->
-// Game (map + challenge) -> Hasil & leaderboard
 const SCREENS = {
   OPENING: "opening",
   LOGIN: "login",
@@ -24,19 +18,8 @@ const SCREENS = {
   RESULTS: "results",
 };
 
-// Per-tab persistence so a browser refresh keeps the player on the SAME
-// screen (e.g. the results/leaderboard, which then re-fetches fresh data)
-// instead of dumping them back to the Opening splash. sessionStorage is
-// per-tab and survives refresh but not tab-close — which is exactly what we
-// want for multi-tab multiplayer testing.
 const STORAGE_KEY = "shield_app_state_v1";
 
-// A live LOBBY session can't survive a refresh (lobby state is keyed to the
-// socket id and there's no resume for it), so it downgrades to CHARACTER.
-// A live GAME session CAN resume: the server holds the player's slot for a
-// grace period and rebinds it via the saved playerKey — so GAME stays GAME
-// and App attempts a resume_game handshake on mount (falling back to
-// CHARACTER only if the server no longer knows us).
 function restoreScreen(saved) {
   if (!saved?.screen) return SCREENS.OPENING;
   if (saved.screen === SCREENS.LOBBY) return SCREENS.CHARACTER;
@@ -57,9 +40,6 @@ function loadPersisted() {
 }
 
 export default function App() {
-  // Simple path-based split: visiting /admin shows the content-management
-  // dashboard instead of the game itself. No router library needed since
-  // this is the only extra "route" in the app.
   const isAdminRoute =
     typeof window !== "undefined" && window.location.pathname.startsWith("/admin");
 
@@ -72,15 +52,10 @@ export default function App() {
   const [playerKey, setPlayerKey] = useState(persisted?.playerKey ?? null);
   const [leaderboard, setLeaderboard] = useState(persisted?.leaderboard ?? []);
   const [initialGameState, setInitialGameState] = useState(null);
-  // "resuming" saat App baru dimount di layar GAME hasil refresh — tahan
-  // render GameScreen sampai handshake resume_game selesai.
   const [resuming, setResuming] = useState(
     () => restoreScreen(persisted) === SCREENS.GAME
   );
 
-  // Refresh di tengah game: minta server merebind slot pemain lama ke socket
-  // baru ini. Sukses -> masuk lagi ke GameScreen dengan state dari server;
-  // gagal (grace habis / room bubar) -> turun ke pilih karakter.
   useEffect(() => {
     if (!resuming) return;
     if (!socket.connected) socket.connect();
@@ -101,9 +76,6 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Mirror the restorable slice of state into sessionStorage on every change.
-  // initialGameState is intentionally omitted: it only matters during a live
-  // GAME session, which we don't resume across a refresh.
   useEffect(() => {
     if (typeof sessionStorage === "undefined") return;
     try {
@@ -112,14 +84,12 @@ export default function App() {
         JSON.stringify({ screen, player, roomCode, playerKey, leaderboard })
       );
     } catch {
-      /* storage full / disabled — persistence is best-effort */
+      /* storage full / disabled */
     }
   }, [screen, player, roomCode, playerKey, leaderboard]);
 
   const goTo = useCallback((next) => setScreen(next), []);
 
-  // Warm the lazy GameScreen/Phaser chunk while the player is still in the
-  // lobby, so "semua siap → game start" doesn't stall on a 1.5 MB download.
   useEffect(() => {
     if (screen === SCREENS.LOBBY) import("./pages/GameScreen.jsx");
   }, [screen]);

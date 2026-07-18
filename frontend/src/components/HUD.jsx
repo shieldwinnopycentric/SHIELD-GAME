@@ -4,6 +4,7 @@ function formatTime(ms) {
   const s = totalSec % 60;
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
+
 const LEVEL_TEXT = { 1: "text-primary", 2: "text-gold", 3: "text-danger" };
 
 export default function HUD({ level, questionNumber, totalQuestions, lives, maxLives, score, timeLeftMs }) {

@@ -1,12 +1,6 @@
 import Swal from "sweetalert2";
 import "sweetalert2/dist/sweetalert2.min.css";
 
-// Dialog konfirmasi bergaya pixel (SweetAlert2) — pengganti window.confirm
-// bawaan browser ("localhost says"). Style-nya diatur lewat customClass yang
-// memetakan ke utilitas pixel/palet di index.css (buttonsStyling: false biar
-// SweetAlert tidak memasang warna sendiri).
-//
-// Mengembalikan Promise<boolean>: true kalau pemain menekan tombol konfirmasi.
 export function confirmDialog({
   title = "Yakin?",
   text = "",
@@ -20,7 +14,7 @@ export function confirmDialog({
     showCancelButton: true,
     confirmButtonText: confirmText,
     cancelButtonText: cancelText,
-    reverseButtons: true, // Batal di kiri, aksi utama di kanan
+    reverseButtons: true,
     focusCancel: true,
     buttonsStyling: false,
     customClass: {

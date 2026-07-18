@@ -14,7 +14,6 @@ export default function Login({ player, setPlayer, onNext, onBack }) {
     setError("");
     onNext();
   }
-  
 
   return (
     <div className="w-full max-w-md">
