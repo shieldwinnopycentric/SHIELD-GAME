@@ -8,12 +8,12 @@ import { useEffect, useRef, useState } from "react";
 //      materi digulir sampai bawah DAN sudah cukup waktu membaca.
 // Setelah kembali, pemain mengulang level (repeatLevel) dengan nyawa penuh.
 
-// Sprite karakter yang sudah ada dipakai sebagai "avatar 2D" pembicara. Ganti
-// path di sini kalau nanti ada aset khusus (konselor/dokter/petugas).
-const CHARACTER_SPRITE = {
-  konselor: "/assets/konselor.png",
-  cypher: "/assets/character-cypher.png",
-  sipir: "/assets/sipir.png",
+// Avatar pembicara per ruangan — konselor di bimbingan, dokter di rumah sakit,
+// sipir di penjara. Masing-masing sudah ada di /assets/.
+const ROOM_AVATAR = {
+  "Ruang Bimbingan": "/assets/konselor.png",
+  "Rumah Sakit": "/assets/dokter.png",
+  Penjara: "/assets/sipir.png",
 };
 
 // Resolusi URL backend mengikuti pola lib/socket.js: hormati VITE_SERVER_URL
@@ -166,7 +166,7 @@ function fetchRoomMaterials() {
 export default function GuidanceRoom({ info, onBackToGame }) {
   const room = info?.failRoom || "Ruang Bimbingan";
   const theme = ROOM_THEME[room] || ROOM_THEME["Ruang Bimbingan"];
-  const avatar = CHARACTER_SPRITE[info?.character] || CHARACTER_SPRITE.konselor;
+  const avatar = ROOM_AVATAR[room] || ROOM_AVATAR["Ruang Bimbingan"];
 
   // Mulai dari konten bawaan, ganti dengan versi server (hasil kelola admin)
   // begitu tersedia. Kalau server tidak menjawab, bawaan tetap tampil.
