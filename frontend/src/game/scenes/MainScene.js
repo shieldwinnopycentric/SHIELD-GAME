@@ -41,13 +41,17 @@ export default class MainScene extends Phaser.Scene {
     this.missingAssetKeys = new Set();
   }
 
-  init({ socket, roomCode, player, initialRoster, currentLevel, onNearNpc }) {
+  init({ socket, roomCode, player, initialRoster, currentLevel, onNearNpc, spectator }) {
     this.socket = socket;
     this.roomCode = roomCode;
-    this.playerMeta = player;
+    this.playerMeta = player || {};
     this.initialRoster = initialRoster || [];
     this.currentLevel = currentLevel || 1;
     this.onNearNpc = onNearNpc;
+    // MODE SPECTATOR (admin): tidak ada avatar sendiri — SEMUA pemain
+    // dirender sebagai "other", kamera bebas digeser (drag / WASD), dan
+    // tidak pernah emit player_move ke server.
+    this.isSpectator = !!spectator;
     this.currentNpc = null;
     this.mustExitZone = false;
   }
@@ -61,7 +65,9 @@ export default class MainScene extends Phaser.Scene {
 
   applyZoneDimming() {
     (this.npcZones || []).forEach((nz) => {
-      nz.marker?.setAlpha(nz.level === this.currentLevel ? 1 : 0.35);
+      // Spectator melihat semua zona level sama terang — dia bukan pemain
+      // yang sedang "berada" di satu level tertentu.
+      nz.marker?.setAlpha(this.isSpectator || nz.level === this.currentLevel ? 1 : 0.35);
     });
   }
 
@@ -332,6 +338,11 @@ export default class MainScene extends Phaser.Scene {
     npcPositions.forEach((pos) => this.buildLevelZoneDecoration(pos));
     this.buildSmokeEffect();
 
+    if (this.isSpectator) {
+      this.createSpectator(npcPositions);
+      return;
+    }
+
     const myId = this.socket.id;
     const mySpawn = this.initialRoster.find((p) => p.id === myId);
     const startX = mySpawn?.x ?? SPAWN.x;
@@ -413,6 +424,82 @@ export default class MainScene extends Phaser.Scene {
       }
     };
     this.socket.on("player_rebound", this.onPlayerRebound);
+
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.socket.off("player_moved", this.onPlayerMoved);
+      this.socket.off("player_progress", this.onPlayerProgress);
+      this.socket.off("player_rebound", this.onPlayerRebound);
+    });
+  }
+
+  /** Setup khusus mode spectator (admin): render semua pemain sebagai
+   * sprite "other" yang mengikuti broadcast player_moved, marker level
+   * tetap tampil, kamera bebas (drag mouse/jari atau WASD/panah), dan
+   * tidak ada satupun emit ke server dari scene ini. */
+  createSpectator(npcPositions) {
+    // Marker + label level tetap digambar supaya petanya sama persis
+    // dengan yang dilihat pemain.
+    this.npcZones = npcPositions.map((pos) => {
+      const marker = this.add
+        .image(pos.x, pos.y, this.markerTextureFor(pos.level))
+        .setDisplaySize(MARKER_SIZE, MARKER_SIZE)
+        .setDepth(4);
+      this.add
+        .text(pos.x, pos.y - MARKER_SIZE / 2 - 14, pos.label, { fontSize: "13px", color: "#FBD000" })
+        .setOrigin(0.5)
+        .setDepth(4);
+      return { ...pos, marker };
+    });
+    this.applyZoneDimming();
+
+    // SEMUA pemain di roster dirender sebagai "other player".
+    this.initialRoster.forEach((p) =>
+      this.getOrCreateOther(p.id, p.x, p.y, p.character, p.name)
+    );
+
+    this.onPlayerMoved = ({ id, x, y }) => {
+      const entry = this.getOrCreateOther(id, x, y);
+      entry.target = { x, y };
+    };
+    this.socket.on("player_moved", this.onPlayerMoved);
+
+    this.onPlayerProgress = ({ id, disconnected }) => {
+      if (!disconnected) return;
+      const entry = this.otherPlayers.get(id);
+      if (entry) {
+        entry.sprite.destroy();
+        entry.nameTag.destroy();
+        this.otherPlayers.delete(id);
+      }
+    };
+    this.socket.on("player_progress", this.onPlayerProgress);
+
+    this.onPlayerRebound = ({ oldId, id, name, character, x, y }) => {
+      const old = this.otherPlayers.get(oldId);
+      if (old) {
+        this.otherPlayers.delete(oldId);
+        this.otherPlayers.set(id, old);
+        old.target = { x, y };
+      } else {
+        this.getOrCreateOther(id, x, y, character, name);
+      }
+    };
+    this.socket.on("player_rebound", this.onPlayerRebound);
+
+    // Kamera mulai di titik spawn, bisa digeser dengan drag (mouse/jari)
+    // atau WASD/panah.
+    this.cameras.main.centerOn(SPAWN.x, SPAWN.y);
+    this.cursors = this.input.keyboard.createCursorKeys();
+    this.wasd = this.input.keyboard.addKeys("W,A,S,D");
+
+    this.input.on("pointermove", (pointer) => {
+      if (!pointer.isDown) return;
+      const cam = this.cameras.main;
+      cam.scrollX -= (pointer.x - pointer.prevPosition.x) / cam.zoom;
+      cam.scrollY -= (pointer.y - pointer.prevPosition.y) / cam.zoom;
+    });
+
+    this.setupResponsiveZoom();
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.socket.off("player_moved", this.onPlayerMoved);
@@ -519,6 +606,26 @@ export default class MainScene extends Phaser.Scene {
   }
 
   update(time) {
+    // MODE SPECTATOR: geser kamera dengan WASD/panah, tidak ada avatar sendiri.
+    if (this.isSpectator) {
+      const speed = 6;
+      const cam = this.cameras.main;
+      if (this.cursors?.left.isDown || this.wasd?.A.isDown) cam.scrollX -= speed;
+      else if (this.cursors?.right.isDown || this.wasd?.D.isDown) cam.scrollX += speed;
+      if (this.cursors?.up.isDown || this.wasd?.W.isDown) cam.scrollY -= speed;
+      else if (this.cursors?.down.isDown || this.wasd?.S.isDown) cam.scrollY += speed;
+
+      this.otherPlayers.forEach((entry) => {
+        const { sprite, nameTag, target } = entry;
+        if (!target) return;
+        const nx = Phaser.Math.Linear(sprite.x, target.x, 0.25);
+        const ny = Phaser.Math.Linear(sprite.y, target.y, 0.25);
+        sprite.setPosition(nx, ny);
+        nameTag.setPosition(nx, ny - 24);
+      });
+      return;
+    }
+
     if (!this.self.body) return;
     const speed = 220;
     let vx = 0;

@@ -1,4 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, lazy, Suspense } from "react";
+import { socket } from "../lib/socket.js";
+
+const PhaserGame = lazy(() => import("../game/PhaserGame.jsx"));
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || "http://localhost:4000";
 const TOKEN_STORAGE_KEY = "shield_admin_token";
@@ -102,7 +105,7 @@ function LoginForm({ onLogin }) {
           {loading ? "Memeriksa..." : "Masuk"}
         </button>
         <p className="text-parchment/30 text-xs mt-4">
-          Token diset lewat <code>ADMIN_TOKEN</code> di <code>backend/.env</code>.
+          masukan token yang sudah diset.
         </p>
       </form>
     </div>
@@ -853,8 +856,307 @@ function OverviewSection({ challengeRows, rooms, seedOnly, onNavigate }) {
   );
 }
 
+const CHAR_LABELS = { nexus: "Nexus", cypher: "Cypher", helix: "Helix" };
+const STATUS_LABELS = {
+  lobby: { text: "Lobby", tone: "gold" },
+  running: { text: "Berjalan", tone: "success" },
+  finished: { text: "Selesai", tone: "line" },
+};
+
+function formatTime(ms) {
+  if (ms == null) return "--:--";
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+function SpectateSection({ token }) {
+  const [roomList, setRoomList] = useState([]);
+  const [listError, setListError] = useState("");
+  const [codeInput, setCodeInput] = useState("");
+  const [watching, setWatching] = useState(null); // kode room yang sedang dipantau
+  const [state, setState] = useState(null); // { status, players, timeLeftMs, leaderboard }
+  const [error, setError] = useState("");
+  // Hitung mundur lokal antar push server (server hanya push saat ada event).
+  const baseRef = useRef({ at: 0, left: null });
+  const [, forceTick] = useState(0);
+
+  async function refreshList() {
+    setListError("");
+    try {
+      const data = await api("/api/admin/rooms", token);
+      setRoomList(data.rooms || []);
+    } catch (err) {
+      setListError(err.message);
+    }
+  }
+
+  useEffect(() => {
+    refreshList();
+    const iv = setInterval(refreshList, 10000);
+    return () => clearInterval(iv);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    function onState(payload) {
+      setState(payload);
+      baseRef.current = { at: Date.now(), left: payload.timeLeftMs };
+    }
+    socket.on("spectate_state", onState);
+    const tick = setInterval(() => forceTick((n) => n + 1), 1000);
+    return () => {
+      socket.off("spectate_state", onState);
+      clearInterval(tick);
+      socket.emit("spectate_stop");
+    };
+  }, []);
+
+  function watch(code) {
+    setError("");
+    if (!socket.connected) socket.connect();
+    if (watching) socket.emit("spectate_stop");
+    socket.emit("spectate_room", { code, adminToken: token }, (res) => {
+      if (!res?.ok) {
+        setWatching(null);
+        setState(null);
+        setError(
+          res?.error === "ROOM_NOT_FOUND"
+            ? "Room tidak ditemukan (mungkin sudah selesai dan dibersihkan)."
+            : "Gagal memantau room — cek token admin."
+        );
+        return;
+      }
+      setWatching(res.code);
+      setState(res);
+      baseRef.current = { at: Date.now(), left: res.timeLeftMs };
+    });
+  }
+
+  function stopWatching() {
+    socket.emit("spectate_stop");
+    setWatching(null);
+    setState(null);
+  }
+
+  const liveTimeLeft =
+    baseRef.current.left != null
+      ? baseRef.current.left - (Date.now() - baseRef.current.at)
+      : null;
+
+  const players = state?.players || [];
+  const sorted = [...players].sort((a, b) => b.score - a.score);
+  const statusMeta = STATUS_LABELS[state?.status] || STATUS_LABELS.lobby;
+
+  return (
+    <div>
+      <SectionHeader
+        title="Pantau Room"
+        subtitle="Lihat jalannya sesi game secara live tanpa ikut jadi peserta."
+      >
+        <button
+          onClick={refreshList}
+          className="border border-line rounded-md px-4 py-2 text-sm text-parchment/70 hover:text-parchment"
+        >
+          ↻ Segarkan Daftar
+        </button>
+      </SectionHeader>
+
+      {!watching && (
+        <>
+          <div className="bg-panel border border-line rounded-xl p-4 mb-5">
+            <p className="text-xs text-parchment/50 uppercase mb-2">
+              Atau masukkan kode room manual
+            </p>
+            <div className="flex gap-2">
+              <input
+                value={codeInput}
+                onChange={(e) => setCodeInput(e.target.value.toUpperCase())}
+                placeholder="Kode room"
+                maxLength={5}
+                className="flex-1 min-w-0 bg-void border border-line rounded-md px-4 py-2 uppercase tracking-widest text-center focus:outline-none focus:border-shield"
+              />
+              <button
+                onClick={() => codeInput.trim() && watch(codeInput.trim())}
+                className="bg-shield text-void font-display font-bold px-5 py-2 rounded-md"
+              >
+                Pantau
+              </button>
+            </div>
+          </div>
+
+          {listError && <p className="text-danger text-sm mb-3">{listError}</p>}
+          {error && <p className="text-danger text-sm mb-3">{error}</p>}
+
+          <div className="space-y-2">
+            {roomList.map((r) => {
+              const meta = STATUS_LABELS[r.status] || STATUS_LABELS.lobby;
+              return (
+                <button
+                  key={r.code}
+                  onClick={() => watch(r.code)}
+                  className="w-full flex items-center justify-between bg-panel border border-line hover:border-shield rounded-xl px-4 py-3 transition text-left"
+                >
+                  <span className="flex items-center gap-3">
+                    <span className="font-pixel tracking-[0.2em] text-gold">{r.code}</span>
+                    <Badge tone={meta.tone}>{meta.text}</Badge>
+                  </span>
+                  <span className="text-sm text-parchment/60">
+                    {r.playerCount} pemain
+                    {r.timeLeftMs != null && ` · sisa ${formatTime(r.timeLeftMs)}`}
+                  </span>
+                </button>
+              );
+            })}
+            {roomList.length === 0 && !listError && (
+              <p className="text-parchment/40 text-sm">
+                Tidak ada room aktif saat ini. Room muncul di sini begitu ada pemain yang
+                membuatnya.
+              </p>
+            )}
+          </div>
+        </>
+      )}
+
+      {watching && (
+        <div>
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-panel border border-shield rounded-xl px-4 py-3 mb-4">
+            <div className="flex items-center gap-3">
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-danger opacity-60" />
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-danger" />
+              </span>
+              <span className="font-display font-bold">LIVE</span>
+              <span className="font-pixel tracking-[0.2em] text-gold">{watching}</span>
+              <Badge tone={statusMeta.tone}>{statusMeta.text}</Badge>
+            </div>
+            <div className="flex items-center gap-3">
+              {state?.status === "running" && (
+                <span className="font-display text-lg tabular-nums">
+                  ⏱ {formatTime(liveTimeLeft)}
+                </span>
+              )}
+              <button
+                onClick={stopWatching}
+                className="border border-line rounded-md px-3 py-1.5 text-sm text-parchment/70 hover:text-danger hover:border-danger/60"
+              >
+                Berhenti Memantau
+              </button>
+            </div>
+          </div>
+
+          <div className="relative w-full aspect-[8/5] rounded-lg overflow-hidden border border-line mb-4">
+            <Suspense fallback={<div className="w-full h-full flex items-center justify-center text-parchment/40 text-sm">Memuat peta...</div>}>
+              <PhaserGame
+                socket={socket}
+                roomCode={watching}
+                player={{}}
+                initialRoster={players}
+                currentLevel={1}
+                spectator
+              />
+            </Suspense>
+            <div className="absolute bottom-1.5 left-1.5 right-1.5 z-10 text-center text-parchment/60 text-[11px] bg-void/60 backdrop-blur-sm rounded px-2 py-1 pointer-events-none">
+              Drag / WASD untuk geser peta · hanya tampilan, tidak ada interaksi game
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+            <StatCard label="Pemain" value={players.length} />
+            <StatCard
+              label="Selesai"
+              value={players.filter((p) => p.finished).length}
+              accent="text-success"
+            />
+            <StatCard
+              label="Menang"
+              value={players.filter((p) => p.won).length}
+              accent="text-gold"
+            />
+            <StatCard
+              label="Skor Tertinggi"
+              value={sorted[0]?.score ?? 0}
+              accent="text-shield"
+            />
+          </div>
+
+          <div className="bg-panel border border-line rounded-xl overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-[11px] uppercase tracking-wider text-parchment/45 border-b border-line">
+                  <th className="px-4 py-2.5">#</th>
+                  <th className="px-4 py-2.5">Pemain</th>
+                  <th className="px-4 py-2.5">Level</th>
+                  <th className="px-4 py-2.5">Soal</th>
+                  <th className="px-4 py-2.5">Nyawa</th>
+                  <th className="px-4 py-2.5">Benar</th>
+                  <th className="px-4 py-2.5">Skor</th>
+                  <th className="px-4 py-2.5">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map((p, i) => (
+                  <tr key={p.id} className="border-b border-line/50 last:border-0">
+                    <td className="px-4 py-2.5 text-parchment/40">{i + 1}</td>
+                    <td className="px-4 py-2.5">
+                      {p.name}{" "}
+                      <span className="text-parchment/40 text-xs">
+                        ({CHAR_LABELS[p.character] || p.character})
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <span className={LEVEL_ACCENTS[p.level]?.text}>Level {p.level}</span>
+                    </td>
+                    <td className="px-4 py-2.5 text-parchment/70">
+                      {state?.status === "lobby" ? "—" : `#${(p.questionIndex ?? 0) + 1}`}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      {"❤".repeat(Math.max(0, p.lives ?? 0)) || "—"}
+                    </td>
+                    <td className="px-4 py-2.5 text-success">{p.correctCount}</td>
+                    <td className="px-4 py-2.5 font-display font-bold">{p.score}</td>
+                    <td className="px-4 py-2.5">
+                      {p.disconnected ? (
+                        <span className="text-danger text-xs">Terputus</span>
+                      ) : p.won ? (
+                        <span className="text-gold text-xs">🏆 Menang</span>
+                      ) : p.finished ? (
+                        <span className="text-success text-xs">Selesai</span>
+                      ) : state?.status === "lobby" ? (
+                        <span className={p.ready ? "text-success text-xs" : "text-parchment/40 text-xs"}>
+                          {p.ready ? "Siap" : "Menunggu"}
+                        </span>
+                      ) : (
+                        <span className="text-parchment/50 text-xs">Bermain</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {players.length === 0 && (
+                  <tr>
+                    <td colSpan={8} className="px-4 py-6 text-center text-parchment/40">
+                      Belum ada pemain di room ini.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <p className="text-parchment/40 text-xs mt-3">
+            Kamu memantau sebagai admin — tidak terhitung sebagai pemain dan tidak terlihat
+            oleh peserta. Data diperbarui otomatis setiap ada kejadian di game.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const NAV_ITEMS = [
   { id: "overview", label: "Ringkasan", icon: "📊" },
+  { id: "spectate", label: "Pantau Room", icon: "📺" },
   { id: "challenges", label: "Bank Soal", icon: "📝" },
   { id: "rooms", label: "Materi Ruang", icon: "🚪" },
 ];
@@ -968,6 +1270,7 @@ function AdminDashboard({ token, onLogout }) {
             onNavigate={setSection}
           />
         )}
+        {section === "spectate" && <SpectateSection token={token} />}
         {section === "challenges" && (
           <BankSoalSection
             token={token}

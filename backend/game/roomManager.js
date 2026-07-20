@@ -90,6 +90,11 @@ export function getRoom(code) {
   return rooms.get(code) || null;
 }
 
+/** Semua room yang masih hidup di memori (untuk daftar spectate di admin). */
+export function listRooms() {
+  return [...rooms.values()];
+}
+
 /** Drops a room from the in-memory store (used after a game finishes so
  * completed rooms don't accumulate for the whole server lifetime). */
 export function deleteRoom(code) {

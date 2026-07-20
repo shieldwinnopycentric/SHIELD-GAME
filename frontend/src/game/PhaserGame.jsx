@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import Phaser from "phaser";
 import MainScene from "./scenes/MainScene.js";
 
-export default function PhaserGame({ socket, roomCode, player, initialRoster, currentLevel, onNearNpc, paused }) {
+export default function PhaserGame({ socket, roomCode, player, initialRoster, currentLevel, onNearNpc, paused, spectator }) {
   const containerRef = useRef(null);
   const gameRef = useRef(null);
 
@@ -42,6 +42,7 @@ export default function PhaserGame({ socket, roomCode, player, initialRoster, cu
       initialRoster,
       currentLevel,
       onNearNpc: (level) => onNearNpcRef.current?.(level),
+      spectator: !!spectator,
     });
 
     return () => {

@@ -10,6 +10,7 @@ import {
   removePlayer,
   getRoom,
   deleteRoom,
+  listRooms,
   findRoomBySocket,
   rebindPlayer,
   resumeStateFor,
@@ -94,7 +95,25 @@ function publicPlayers(room) {
     correctCount: p.correctCount,
     score: p.score,
     finished: p.finished,
+    won: !!p.won,
+    disconnected: !!p.disconnected,
   }));
+}
+
+// ---------------------------------------------------------------------
+// SPECTATOR MODE (admin): admin bisa memantau sebuah room secara live dari
+// dashboard /admin TANPA menjadi pemain. Spectator TIDAK pernah masuk
+// room.players — game logic (ready check, kuota 10 pemain, leaderboard)
+// tidak terpengaruh sama sekali. Dia hanya join channel Socket.IO
+// `spec:<kode>` yang menerima push spectate_state pada setiap perubahan
+// state yang berarti (menumpang call site snapshotRoom di bawah).
+function emitSpectate(room) {
+  io.to(`spec:${room.code}`).emit("spectate_state", {
+    status: room.status,
+    players: publicPlayers(room),
+    timeLeftMs: room.status === "running" ? timeLeftMs(room) : null,
+    leaderboard: room.status === "finished" ? buildLeaderboard(room) : null,
+  });
 }
 
 // ---------------------------------------------------------------------
@@ -103,7 +122,11 @@ function publicPlayers(room) {
 // Supabase after every meaningful state change, for backup/observability.
 // Fire-and-forget: never blocks or fails the actual game flow.
 async function snapshotRoom(room) {
-  if (!supabase || !room) return;
+  if (!room) return;
+  // Tumpangan murah: setiap perubahan state yang layak di-snapshot juga
+  // layak dilihat spectator admin — push versi publiknya ke channel spec.
+  emitSpectate(room);
+  if (!supabase) return;
   try {
     await supabase.from("room_snapshots").upsert(
       {
@@ -289,7 +312,55 @@ app.delete("/api/admin/room-materials/:roomKey", requireAdmin, async (req, res) 
   }
 });
 
+// Daftar room yang sedang hidup di memori — dipakai tab "Pantau Room" di
+// /admin supaya admin tinggal klik room-nya, tidak harus mengetik kode.
+app.get("/api/admin/rooms", requireAdmin, (_req, res) => {
+  res.json({
+    rooms: listRooms().map((room) => ({
+      code: room.code,
+      status: room.status,
+      playerCount: room.players.size,
+      timeLeftMs: room.status === "running" ? timeLeftMs(room) : null,
+    })),
+  });
+});
+
 io.on("connection", (socket) => {
+  // ---- SPECTATOR (admin) ----------------------------------------------
+  // Admin memantau room dari dashboard tanpa menjadi pemain. Diproteksi
+  // ADMIN_TOKEN yang sama dengan REST endpoint admin. Spectator join dua
+  // channel: `spec:<kode>` (push spectate_state lengkap tiap perubahan
+  // state) dan `<kode>` (ikut menerima broadcast publik seperti
+  // player_moved supaya pergerakan avatar terlihat live di peta). Dia
+  // TIDAK pernah dimasukkan ke room.players, jadi tidak menghitung kuota
+  // pemain, tidak ikut ready-check, dan tidak muncul di leaderboard.
+  socket.on("spectate_room", ({ code, adminToken }, cb) => {
+    if (!ADMIN_TOKEN || adminToken !== ADMIN_TOKEN) {
+      return cb?.({ ok: false, error: "UNAUTHORIZED" });
+    }
+    const room = getRoom(String(code || "").trim().toUpperCase());
+    if (!room) return cb?.({ ok: false, error: "ROOM_NOT_FOUND" });
+
+    socket.join(room.code);
+    socket.join(`spec:${room.code}`);
+    socket.data.spectating = room.code;
+    cb?.({
+      ok: true,
+      code: room.code,
+      status: room.status,
+      players: publicPlayers(room),
+      timeLeftMs: room.status === "running" ? timeLeftMs(room) : null,
+    });
+  });
+
+  socket.on("spectate_stop", () => {
+    const code = socket.data.spectating;
+    if (!code) return;
+    socket.leave(code);
+    socket.leave(`spec:${code}`);
+    socket.data.spectating = null;
+  });
+
   socket.on("create_room", ({ name, character }, cb) => {
     const room = createRoom(socket.id, { name, character });
     socket.join(room.code);
