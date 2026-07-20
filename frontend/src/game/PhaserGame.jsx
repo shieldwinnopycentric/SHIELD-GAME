@@ -57,6 +57,15 @@ export default function PhaserGame({ socket, roomCode, player, initialRoster, cu
     if (scene?.setCurrentLevel) scene.setCurrentLevel(currentLevel);
   }, [currentLevel]);
 
+  // MODE SPECTATOR: tiap kali roster dari spectate_state berubah, samakan
+  // sprite di peta (pemain baru muncul, yang keluar hilang) tanpa harus
+  // menunggu broadcast player_moved.
+  useEffect(() => {
+    if (!spectator || !initialRoster) return;
+    const scene = gameRef.current?.scene.getScene("MainScene");
+    if (scene?.syncRoster) scene.syncRoster(initialRoster);
+  }, [spectator, initialRoster]);
+
   useEffect(() => {
     const manager = gameRef.current?.scene;
     if (!manager || !manager.getScene("MainScene")) return;

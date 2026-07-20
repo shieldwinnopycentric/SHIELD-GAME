@@ -881,6 +881,10 @@ function SpectateSection({ token }) {
   // Hitung mundur lokal antar push server (server hanya push saat ada event).
   const baseRef = useRef({ at: 0, left: null });
   const [, forceTick] = useState(0);
+  // Ref supaya handler reconnect selalu tahu room yang sedang dipantau
+  // tanpa terjebak stale closure.
+  const watchingRef = useRef(null);
+  watchingRef.current = watching;
 
   async function refreshList() {
     setListError("");
@@ -904,13 +908,35 @@ function SpectateSection({ token }) {
       setState(payload);
       baseRef.current = { at: Date.now(), left: payload.timeLeftMs };
     }
+    // Socket putus (wifi kedip / server restart / tab lama di background)
+    // = keanggotaan channel spec:<kode> hilang di server. Tanpa re-subscribe
+    // di event connect, tampilan diam-diam beku selamanya. Socket.IO
+    // auto-reconnect, jadi cukup daftar ulang begitu tersambung.
+    function onReconnect() {
+      const code = watchingRef.current;
+      if (!code) return;
+      socket.emit("spectate_room", { code, adminToken: token }, (res) => {
+        if (res?.ok) {
+          setState(res);
+          baseRef.current = { at: Date.now(), left: res.timeLeftMs };
+        } else {
+          // Room sudah tidak ada (selesai & dibersihkan saat kita offline).
+          setWatching(null);
+          setState(null);
+          setError("Koneksi tersambung lagi, tapi room sudah tidak ada.");
+        }
+      });
+    }
     socket.on("spectate_state", onState);
+    socket.on("connect", onReconnect);
     const tick = setInterval(() => forceTick((n) => n + 1), 1000);
     return () => {
       socket.off("spectate_state", onState);
+      socket.off("connect", onReconnect);
       clearInterval(tick);
       socket.emit("spectate_stop");
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function watch(code) {

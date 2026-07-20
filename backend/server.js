@@ -196,6 +196,10 @@ async function endGame(room) {
     clearTimeout(room.endTimer);
     room.endTimer = null;
   }
+  // Spectator admin diberi tahu SEKARANG — persistResults di bawah bisa
+  // makan beberapa detik (network ke Supabase) dan tidak boleh menunda
+  // tampilan live berubah ke "Selesai".
+  emitSpectate(room);
   const leaderboard = buildLeaderboard(room);
   // Persist FIRST, then tell clients — otherwise the client renders the
   // global leaderboard and fetches from Supabase before this session's rows

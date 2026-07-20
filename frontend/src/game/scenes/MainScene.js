@@ -501,10 +501,35 @@ export default class MainScene extends Phaser.Scene {
 
     this.setupResponsiveZoom();
 
+    // Sinkronisasi penuh roster dari spectate_state boleh mulai dipakai
+    // (dipanggil PhaserGame lewat syncRoster tiap kali state berubah).
+    this.spectatorReady = true;
+
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.socket.off("player_moved", this.onPlayerMoved);
       this.socket.off("player_progress", this.onPlayerProgress);
       this.socket.off("player_rebound", this.onPlayerRebound);
+    });
+  }
+
+  /** MODE SPECTATOR: samakan sprite di peta dengan roster terbaru dari
+   * spectate_state — tambah pemain baru (join lobby), pindahkan yang
+   * teleport (spawn saat game start, resume), hapus yang keluar. Tanpa
+   * ini peta hanya berubah saat ada broadcast player_moved, jadi pemain
+   * baru/keluar tidak pernah muncul/hilang secara realtime. */
+  syncRoster(players) {
+    if (!this.isSpectator || !this.spectatorReady) return;
+    const seen = new Set();
+    players.forEach((p) => {
+      seen.add(p.id);
+      const entry = this.getOrCreateOther(p.id, p.x, p.y, p.character, p.name);
+      entry.target = { x: p.x, y: p.y };
+    });
+    this.otherPlayers.forEach((entry, id) => {
+      if (seen.has(id)) return;
+      entry.sprite.destroy();
+      entry.nameTag.destroy();
+      this.otherPlayers.delete(id);
     });
   }
 
